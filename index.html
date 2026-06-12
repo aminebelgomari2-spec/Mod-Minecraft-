@@ -3,23 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Rec Room - Dorm Room P2P</title>
+    <title>Rec Room - Dorm Room Local Test</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; user-select: none; -webkit-user-select: none; background-color: #000; }
         #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
         
-        /* Écran de connexion */
+        /* Écran de connexion simplifié */
         #login-screen {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: #ff5722; z-index: 100;
             display: flex; flex-direction: column; justify-content: center; align-items: center; color: white;
         }
-        #username-input {
-            padding: 15px; font-size: 18px; border: none; border-radius: 25px;
-            width: 70%; max-width: 300px; text-align: center; margin-bottom: 20px; outline: none;
-        }
-        .btn { padding: 12px 25px; font-size: 16px; background: white; color: #ff5722; border: none; border-radius: 25px; font-weight: bold; cursor: pointer; margin: 5px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
-        #room-input { padding: 10px; border-radius: 10px; border: none; margin-top: 10px; text-align: center; display: none;}
+        .btn { padding: 15px 35px; font-size: 18px; background: white; color: #ff5722; border: none; border-radius: 25px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
 
         /* Joysticks tactiles */
         #touch-controls { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; pointer-events: box-none; display: none; }
@@ -32,9 +27,6 @@
         #joy-hand-l .joystick-knob { background: #00bcd4; }
         #joy-hand-r .joystick-knob { background: #4caf50; }
         #jump-button { position: absolute; bottom: 30px; right: 20px; width: 70px; height: 50px; background: rgba(255, 87, 34, 0.8); border: 2px solid white; border-radius: 25px; color: white; font-weight: bold; display: flex; justify-content: center; align-items: center; font-size: 12px; }
-        
-        /* Infos en haut */
-        #ui-layer { position: absolute; top: 15px; left: 15px; color: white; z-index: 10; font-size: 14px; text-shadow: 1px 1px 2px black; pointer-events: none; display: none; }
     </style>
 
     <script type="importmap">
@@ -44,26 +36,12 @@
             }
         }
     </script>
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
 
     <div id="login-screen">
-        <h1 style="margin-bottom: 5px;">DORM ROOM 3D</h1>
-        <p style="margin: 0 0 15px 0; font-size: 12px; opacity: 0.8;">Voice Chat Intégré</p>
-        <input type="text" id="username-input" placeholder="Ton Pseudo..." maxlength="12">
-        
-        <div>
-            <button class="btn" id="btn-create">CRÉER UN SALON</button>
-            <button class="btn" id="btn-join">REJOINDRE UN SALON</button>
-        </div>
-        <input type="text" id="room-input" placeholder="Coller le code du salon ici...">
-        <button class="btn" id="btn-submit" style="display: none; background: #2196f3; color: white;">CONNEXION</button>
-    </div>
-
-    <div id="ui-layer">
-        <p id="room-display" style="margin:0; font-weight: bold; color: #ff5722; pointer-events: auto; user-select: text; -webkit-user-select: text;"></p>
-        <p id="player-count" style="margin: 5px 0 0 0;">Seul dans ta Dorm Room</p>
+        <h1 style="margin-bottom: 20px;">DORM ROOM (MODE TEST)</h1>
+        <button class="btn" id="btn-start">LANCER LE JEU</button>
     </div>
 
     <div id="touch-controls">
@@ -79,9 +57,6 @@
         import * as THREE from 'three';
         
         let camera, scene, renderer, leftHand, rightHand;
-        let myUsername = "Player";
-        let isHost = false;
-        let roomCode = "";
         
         let moveForward = 0, moveRight = 0, handL_X = 0, handL_Y = 0, handR_X = 0, handR_Y = 0;
         let canJump = false, velocityY = 0;
@@ -92,38 +67,15 @@
         const baseHandL = new THREE.Vector3(-0.4, -0.4, -0.8);
         const baseHandR = new THREE.Vector3(0.4, -0.4, -0.8);
 
-        let otherPlayers = {};
-        let peer, connections = [];
-        let myLocalAudioStream = null;
-
-        document.getElementById('btn-create').addEventListener('click', () => { isHost = true; startSetup(); });
-        document.getElementById('btn-join').addEventListener('click', () => { isHost = false; document.getElementById('room-input').style.display = 'block'; document.getElementById('btn-submit').style.display = 'inline-block'; });
-        document.getElementById('btn-submit').addEventListener('click', () => { roomCode = document.getElementById('room-input').value.trim(); if(roomCode) startSetup(); });
-
-        function startSetup() {
-            const input = document.getElementById('username-input').value.trim();
-            if(input) myUsername = input;
-            
+        document.getElementById('btn-start').addEventListener('click', () => {
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('touch-controls').style.display = 'block';
-            document.getElementById('ui-layer').style.display = 'block';
-            
             initGame();
-
-            navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-                .then(stream => { 
-                    myLocalAudioStream = stream;
-                })
-                .catch(err => { 
-                    console.log("Mode muet actif :", err); 
-                });
-        }
+        });
 
         function initGame() {
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            
-            // CORRECTION POSITION DE DÉPART : On te place au centre exact (0, 2, 0) pour éviter les collisions
-            camera.position.set(0, 2, 0); 
+            camera.position.set(0, 2, 0); // Centre exact de la pièce
 
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x1a0f2e);
@@ -163,10 +115,6 @@
             const mirrorGlass = new THREE.Mesh(new THREE.BoxGeometry(0.11, 2, 1.3), new THREE.MeshStandardMaterial({ color: 0xcfd8dc, roughness: 0, metalness: 0.9 })); mirrorGlass.position.set(5.75, 1.8, 0);
             scene.add(mirrorFrame, mirrorGlass);
 
-            const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.8, 0.1), new THREE.MeshStandardMaterial({ color: 0x212121 })); doorFrame.position.set(0, 1.4, 5.75);
-            const doorKey = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.6, 0.12), new THREE.MeshStandardMaterial({ color: 0x00bcd4 })); doorKey.position.set(0, 1.4, 5.75);
-            scene.add(doorFrame, doorKey);
-
             const handGeo = new THREE.SphereGeometry(0.12, 16, 16);
             const handMat = new THREE.MeshStandardMaterial({ color: 0xff5722 });
             leftHand = new THREE.Mesh(handGeo, handMat); leftHand.position.copy(baseHandL); camera.add(leftHand);
@@ -178,119 +126,9 @@
             document.getElementById('canvas-container').appendChild(renderer.domElement);
 
             setupMobileControls();
-            initNetworkP2P();
             
             window.addEventListener('resize', onWindowResize);
             animate();
-        }
-
-        function initNetworkP2P() {
-            if (isHost) {
-                const generatedId = "REC-" + Math.floor(1000 + Math.random() * 9000);
-                peer = new Peer(generatedId);
-                peer.on('open', (id) => { document.getElementById('room-display').innerText = "Code de ta Chambre : " + id; });
-                peer.on('connection', (conn) => { setupConnectionEvents(conn); connections.push(conn); });
-                peer.on('call', (call) => { if (myLocalAudioStream) call.answer(myLocalAudioStream); handleVoiceStream(call); });
-            } else {
-                peer = new Peer();
-                peer.on('open', () => {
-                    document.getElementById('room-display').innerText = "Dans la Chambre : " + roomCode;
-                    const conn = peer.connect(roomCode);
-                    setupConnectionEvents(conn); connections.push(conn);
-                    if (myLocalAudioStream) peer.call(roomCode, myLocalAudioStream);
-                });
-                peer.on('call', (call) => { if (myLocalAudioStream) call.answer(myLocalAudioStream); handleVoiceStream(call); });
-            }
-            
-            setInterval(() => {
-                if (!peer || peer.destroyed || !peer.id) return;
-                
-                const wpL = new THREE.Vector3(); leftHand.getWorldPosition(wpL);
-                const wpR = new THREE.Vector3(); rightHand.getWorldPosition(wpR);
-                const myData = {
-                    id: peer.id, username: myUsername,
-                    x: camera.position.x, y: camera.position.y, z: camera.position.z,
-                    lhX: wpL.x, lhY: wpL.y, lhZ: wpL.z, rhX: wpR.x, rhY: wpR.y, rhZ: wpR.z
-                };
-                connections.forEach(conn => { if (conn.open) conn.send(myData); });
-            }, 40);
-        }
-
-        function handleVoiceStream(call) {
-            call.on('stream', (remoteStream) => {
-                if (document.getElementById(`audio-${call.peer}`)) return;
-                const audioEl = document.createElement('audio');
-                audioEl.id = `audio-${call.peer}`; 
-                audioEl.srcObject = remoteStream; 
-                audioEl.autoplay = true; 
-                audioEl.style.display = 'none';
-                document.body.appendChild(audioEl);
-            });
-        }
-
-        function setupConnectionEvents(conn) {
-            conn.on('data', (data) => {
-                handlePlayerData(data);
-                if (isHost) {
-                    connections.forEach(c => { 
-                        if (c.peer !== conn.peer && c.open) {
-                            c.send(data);
-                            if (!otherPlayers[data.id]?.called && myLocalAudioStream) {
-                                peer.call(data.id, myLocalAudioStream);
-                                if (otherPlayers[data.id]) otherPlayers[data.id].called = true;
-                            }
-                        } 
-                    });
-                }
-            });
-            conn.on('close', () => {
-                Object.keys(otherPlayers).forEach(id => {
-                    if(otherPlayers[id].peerId === conn.peer) {
-                        scene.remove(otherPlayers[id].body);
-                        scene.remove(otherPlayers[id].label);
-                        const audioEl = document.getElementById(`audio-${conn.peer}`); if (audioEl) audioEl.remove();
-                        delete otherPlayers[id];
-                    }
-                });
-                updateCount();
-            });
-        }
-
-        function handlePlayerData(data) {
-            const id = data.id; if (!id) return;
-
-            if (!otherPlayers[id]) {
-                const playerGroup = new THREE.Group();
-                const bodyMesh = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), new THREE.MeshStandardMaterial({ color: 0x0287bd }));
-                playerGroup.add(bodyMesh);
-
-                const hMat = new THREE.MeshStandardMaterial({ color: 0xffa500 });
-                const oLeftHand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), hMat);
-                const oRightHand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), hMat);
-                playerGroup.add(oLeftHand, oRightHand); scene.add(playerGroup);
-
-                const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 64;
-                const ctx = canvas.getContext('2d'); ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, 256, 64);
-                ctx.font = 'bold 26px Arial'; ctx.fillStyle = 'white'; ctx.textAlign = 'center'; ctx.fillText(data.username || "Player", 128, 40);
-                
-                const texture = new THREE.CanvasTexture(canvas);
-                const labelSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false }));
-                labelSprite.scale.set(2, 0.5, 1); scene.add(labelSprite);
-
-                otherPlayers[id] = { body: playerGroup, label: labelSprite, lh: oLeftHand, rh: oRightHand, peerId: id, called: false };
-                updateCount();
-            }
-
-            const p = otherPlayers[id];
-            p.body.position.set(data.x, data.y - 0.4, data.z);
-            p.label.position.set(data.x, data.y + 0.6, data.z);
-            if(data.lhX) p.lh.position.set(data.lhX - data.x, data.lhY - (data.y - 0.4), data.lhZ - data.z);
-            if(data.rhX) p.rh.position.set(data.rhX - data.x, data.rhY - (data.y - 0.4), data.rhZ - data.z);
-        }
-
-        function updateCount() {
-            const count = Object.keys(otherPlayers).length + 1;
-            document.getElementById('player-count').innerText = `${count} joueur(s) dans la Chambre`;
         }
 
         function setupMobileControls() {
@@ -298,10 +136,9 @@
             let moveTouchId = null, handLTouchId = null, handRTouchId = null;
 
             document.addEventListener('touchstart', (e) => {
-                if(e.target.id === 'btn-create' || e.target.id === 'btn-join' || e.target.id === 'btn-submit' || e.target.tagName === 'INPUT') return;
+                if(e.target.id === 'btn-start') return;
 
                 const midWidth = window.innerWidth * 0.35;
-                const midHeight = window.innerHeight * 0.35;
 
                 for (let i = 0; i < e.changedTouches.length; i++) {
                     let touch = e.changedTouches[i];
@@ -363,16 +200,10 @@
             jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (canJump) { velocityY = 11; canJump = false; } });
         }
 
-        let lastWidth = window.innerWidth;
-        let lastHeight = window.innerHeight;
-
         function onWindowResize() {
-            if (Math.abs(window.innerWidth - lastWidth) > 50 || Math.abs(window.innerHeight - lastHeight) < 150) {
-                camera.aspect = window.innerWidth / window.innerHeight; 
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
-                lastWidth = window.innerWidth; lastHeight = window.innerHeight;
-            }
+            camera.aspect = window.innerWidth / window.innerHeight; 
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
         function animate() {
@@ -397,10 +228,6 @@
 
             camera.position.addScaledVector(forwardDir, moveForward * 4 * delta);
             camera.position.addScaledVector(rightDir, moveRight * 4 * delta);
-
-            // DESACTIVATION DES LIMITES : Suppression des verrous de collision pour tester le mouvement pur libre
-            // camera.position.x = Math.max(-5.5, Math.min(5.5, camera.position.x));
-            // camera.position.z = Math.max(-5.5, Math.min(5.5, camera.position.z));
 
             velocityY -= 26 * delta; camera.position.y += velocityY * delta;
             if (camera.position.y < 2) { camera.position.y = 2; velocityY = 0; canJump = true; }
