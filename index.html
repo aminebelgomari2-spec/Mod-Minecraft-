@@ -2,10 +2,10 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Rec Room - Dorm Room P2P</title>
     <style>
-        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; user-select: none; -webkit-user-select: none; background-color: #000; }
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; user-select: none; -webkit-user-select: none; background-color: #000; touch-action: none; }
         #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
         
         /* Écran de connexion */
@@ -23,15 +23,15 @@
 
         /* Joysticks tactiles */
         #touch-controls { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; pointer-events: box-none; display: none; }
-        .joystick-base { position: absolute; width: 85px; height: 85px; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.25); border-radius: 50%; display: flex; justify-content: center; align-items: center; }
-        .joystick-knob { width: 35px; height: 35px; border-radius: 50%; position: absolute; }
-        #joy-move { bottom: 20px; left: 20px; }
-        #joy-hand-l { top: 20px; left: 20px; }
-        #joy-hand-r { top: 20px; right: 20px; }
+        .joystick-base { position: absolute; width: 90px; height: 90px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 50%; display: flex; justify-content: center; align-items: center; }
+        .joystick-knob { width: 40px; height: 40px; border-radius: 50%; position: absolute; transition: transform 0.05s linear; }
+        #joy-move { bottom: 30px; left: 30px; }
+        #joy-hand-l { top: 30px; left: 30px; }
+        #joy-hand-r { top: 30px; right: 30px; }
         #joy-move .joystick-knob { background: #ff5722; }
         #joy-hand-l .joystick-knob { background: #00bcd4; }
         #joy-hand-r .joystick-knob { background: #4caf50; }
-        #jump-button { position: absolute; bottom: 30px; right: 20px; width: 70px; height: 50px; background: rgba(255, 87, 34, 0.8); border: 2px solid white; border-radius: 25px; color: white; font-weight: bold; display: flex; justify-content: center; align-items: center; font-size: 12px; }
+        #jump-button { position: absolute; bottom: 40px; right: 30px; width: 80px; height: 55px; background: rgba(255, 87, 34, 0.9); border: 2px solid white; border-radius: 25px; color: white; font-weight: bold; display: flex; justify-content: center; align-items: center; font-size: 14px; }
         
         /* Infos en haut */
         #ui-layer { position: absolute; top: 15px; left: 15px; color: white; z-index: 10; font-size: 14px; text-shadow: 1px 1px 2px black; pointer-events: none; display: none; }
@@ -110,7 +110,6 @@
             navigator.mediaDevices.getUserMedia({ audio: true, video: false })
                 .then(stream => {
                     myLocalAudioStream = stream;
-                    console.log("Micro activé !");
                 })
                 .catch(err => {
                     console.log("Audio non dispo :", err);
@@ -218,31 +217,16 @@
                 peer.on('open', (id) => { document.getElementById('room-display').innerText = "Code de ta Chambre : " + id; });
                 peer.on('connection', (conn) => { setupConnectionEvents(conn); connections.push(conn); });
                 
-                peer.on('call', (call) => {
-                    if (myLocalAudioStream) {
-                        call.answer(myLocalAudioStream);
-                        handleVoiceStream(call);
-                    }
-                });
+                peer.on('call', (call) => { if (myLocalAudioStream) call.answer(myLocalAudioStream); handleVoiceStream(call); });
             } else {
                 peer = new Peer();
                 peer.on('open', () => {
                     document.getElementById('room-display').innerText = "Dans la Chambre : " + roomCode;
                     const conn = peer.connect(roomCode);
                     setupConnectionEvents(conn); connections.push(conn);
-                    
-                    if (myLocalAudioStream) {
-                        const call = peer.call(roomCode, myLocalAudioStream);
-                        handleVoiceStream(call);
-                    }
+                    if (myLocalAudioStream) peer.call(roomCode, myLocalAudioStream);
                 });
-
-                peer.on('call', (call) => {
-                    if (myLocalAudioStream) {
-                        call.answer(myLocalAudioStream);
-                        handleVoiceStream(call);
-                    }
-                });
+                peer.on('call', (call) => { if (myLocalAudioStream) call.answer(myLocalAudioStream); handleVoiceStream(call); });
             }
             
             setInterval(() => {
@@ -262,11 +246,7 @@
             call.on('stream', (remoteStream) => {
                 if (document.getElementById(`audio-${call.peer}`)) return;
                 const audioEl = document.createElement('audio');
-                audioEl.id = `audio-${call.peer}`;
-                audioEl.srcObject = remoteStream;
-                audioEl.autoplay = true;
-                audioEl.controls = false;
-                audioEl.style.display = 'none';
+                audioEl.id = `audio-${call.peer}`; audioEl.srcObject = remoteStream; audioEl.autoplay = true; audioEl.style.display = 'none';
                 document.body.appendChild(audioEl);
             });
         }
@@ -279,8 +259,7 @@
                         if (c.peer !== conn.peer && c.open) {
                             c.send(data);
                             if (!otherPlayers[data.id]?.called && myLocalAudioStream) {
-                                const call = peer.call(data.id, myLocalAudioStream);
-                                handleVoiceStream(call);
+                                peer.call(data.id, myLocalAudioStream);
                                 if (otherPlayers[data.id]) otherPlayers[data.id].called = true;
                             }
                         } 
@@ -290,10 +269,8 @@
             conn.on('close', () => {
                 Object.keys(otherPlayers).forEach(id => {
                     if(otherPlayers[id].peerId === conn.peer) {
-                        scene.remove(otherPlayers[id].body);
-                        scene.remove(otherPlayers[id].label);
-                        const audioEl = document.getElementById(`audio-${conn.peer}`);
-                        if (audioEl) audioEl.remove();
+                        scene.remove(otherPlayers[id].body); scene.remove(otherPlayers[id].label);
+                        const audioEl = document.getElementById(`audio-${conn.peer}`); if (audioEl) audioEl.remove();
                         delete otherPlayers[id];
                     }
                 });
@@ -303,60 +280,66 @@
 
         function handlePlayerData(data) {
             const id = data.id; if (!id) return;
-
             if (!otherPlayers[id]) {
                 const playerGroup = new THREE.Group();
                 const bodyMesh = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), new THREE.MeshStandardMaterial({ color: 0x0287bd }));
                 playerGroup.add(bodyMesh);
-
                 const hMat = new THREE.MeshStandardMaterial({ color: 0xffa500 });
                 const oLeftHand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), hMat);
                 const oRightHand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), hMat);
-                playerGroup.add(oLeftHand, oRightHand);
-                scene.add(playerGroup);
+                playerGroup.add(oLeftHand, oRightHand); scene.add(playerGroup);
 
                 const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 64;
-                const ctx = canvas.getContext('2d');
-                ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, 256, 64);
-                ctx.font = 'bold 26px Arial'; ctx.fillStyle = 'white'; ctx.textAlign = 'center';
-                ctx.fillText(data.username || "Player", 128, 40);
-                
+                const ctx = canvas.getContext('2d'); ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, 256, 64);
+                ctx.font = 'bold 26px Arial'; ctx.fillStyle = 'white'; ctx.textAlign = 'center'; ctx.fillText(data.username || "Player", 128, 40);
                 const texture = new THREE.CanvasTexture(canvas);
                 const labelSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false }));
-                labelSprite.scale.set(2, 0.5, 1);
-                scene.add(labelSprite);
+                labelSprite.scale.set(2, 0.5, 1); scene.add(labelSprite);
 
-                otherPlayers[id] = { body: playerGroup, label: labelSprite, lh: oLeftHand, rh: oRightHand, peerId: id, called: false };
+                otherPlayers[id] = { body: playerGroup, label: labelSprite, lh: oLeftHand, rh: oRightHand, peerId: id };
                 updateCount();
             }
-
             const p = otherPlayers[id];
-            p.body.position.set(data.x, data.y - 0.4, data.z);
-            p.label.position.set(data.x, data.y + 0.6, data.z);
+            p.body.position.set(data.x, data.y - 0.4, data.z); p.label.position.set(data.x, data.y + 0.6, data.z);
             if(data.lhX) p.lh.position.set(data.lhX - data.x, data.lhY - (data.y - 0.4), data.lhZ - data.z);
             if(data.rhX) p.rh.position.set(data.rhX - data.x, data.rhY - (data.y - 0.4), data.rhZ - data.z);
         }
 
         function updateCount() {
-            const count = Object.keys(otherPlayers).length + 1;
-            document.getElementById('player-count').innerText = `${count} joueur(s) dans la Chambre`;
+            document.getElementById('player-count').innerText = `${Object.keys(otherPlayers).length + 1} joueur(s) dans la Chambre`;
         }
 
         function setupMobileControls() {
             const jumpBtn = document.getElementById('jump-button');
+            
+            // Origine des touchés pour calculer la distance réelle du glissement
+            let moveStart = { x: 0, y: 0 }, handLStart = { x: 0, y: 0 }, handRStart = { x: 0, y: 0 };
             let moveTouchId = null, handLTouchId = null, handRTouchId = null;
 
             document.addEventListener('touchstart', (e) => {
-                if(e.target.id === 'btn-create' || e.target.id === 'btn-join' || e.target.id === 'btn-submit') return;
-
+                if(e.target.id === 'btn-create' || e.target.id === 'btn-join' || e.target.id === 'btn-submit' || e.target.tagName === 'INPUT') return;
+                
                 for (let i = 0; i < e.changedTouches.length; i++) {
                     let touch = e.changedTouches[i];
                     const x = touch.clientX; const y = touch.clientY;
 
-                    if (x < 150 && y > window.innerHeight - 150) moveTouchId = touch.identifier;
-                    else if (x < 150 && y < 150) handLTouchId = touch.identifier;
-                    else if (x > window.innerWidth - 150 && y < 150) handRTouchId = touch.identifier;
-                    else if (!(x > window.innerWidth - 120 && y > window.innerHeight - 120)) {
+                    // Zone Joystick de déplacement (Bas gauche)
+                    if (x < window.innerWidth * 0.4 && y > window.innerHeight * 0.5) {
+                        moveTouchId = touch.identifier;
+                        moveStart = { x: x, y: y };
+                    } 
+                    // Zone Main Gauche (Haut gauche)
+                    else if (x < window.innerWidth * 0.4 && y <= window.innerHeight * 0.5) {
+                        handLTouchId = touch.identifier;
+                        handLStart = { x: x, y: y };
+                    } 
+                    // Zone Main Droite (Haut droite)
+                    else if (x >= window.innerWidth * 0.4 && y <= window.innerHeight * 0.5) {
+                        handRTouchId = touch.identifier;
+                        handRStart = { x: x, y: y };
+                    } 
+                    // Zone Caméra (Reste de l'écran sauf bouton Saut)
+                    else if (e.target.id !== 'jump-button') {
                         onPointerDownPointerX = x; onPointerDownPointerY = y;
                         onPointerDownLon = lon; onPointerDownLat = lat;
                     }
@@ -366,16 +349,29 @@
             document.addEventListener('touchmove', (e) => {
                 for (let i = 0; i < e.changedTouches.length; i++) {
                     let touch = e.changedTouches[i];
+                    
                     if (touch.identifier === moveTouchId) {
-                        updateJoystick('joy-move', 'knob-move', touch, (nx, ny) => { moveRight = nx; moveForward = -ny; });
-                    } else if (touch.identifier === handLTouchId) {
-                        updateJoystick('joy-hand-l', 'knob-hand-l', touch, (nx, ny) => { handL_X = nx; handL_Y = -ny; });
-                    } else if (touch.identifier === handRTouchId) {
-                        updateJoystick('joy-hand-r', 'knob-hand-r', touch, (nx, ny) => { handR_X = nx; handR_Y = -ny; });
-                    } else {
+                        let dx = touch.clientX - moveStart.x; let dy = touch.clientY - moveStart.y;
+                        let dist = Math.hypot(dx, dy); if(dist > 35) { dx = (dx/dist)*35; dy = (dy/dist)*35; }
+                        document.getElementById('knob-move').style.transform = `translate(${dx}px, ${dy}px)`;
+                        moveRight = dx / 35; moveForward = -(dy / 35);
+                    } 
+                    else if (touch.identifier === handLTouchId) {
+                        let dx = touch.clientX - handLStart.x; let dy = touch.clientY - handLStart.y;
+                        let dist = Math.hypot(dx, dy); if(dist > 35) { dx = (dx/dist)*35; dy = (dy/dist)*35; }
+                        document.getElementById('knob-hand-l').style.transform = `translate(${dx}px, ${dy}px)`;
+                        handL_X = dx / 35; handL_Y = -(dy / 35);
+                    } 
+                    else if (touch.identifier === handRTouchId) {
+                        let dx = touch.clientX - handRStart.x; let dy = touch.clientY - handRStart.y;
+                        let dist = Math.hypot(dx, dy); if(dist > 35) { dx = (dx/dist)*35; dy = (dy/dist)*35; }
+                        document.getElementById('knob-hand-r').style.transform = `translate(${dx}px, ${dy}px)`;
+                        handR_X = dx / 35; handR_Y = -(dy / 35);
+                    } 
+                    else {
                         if(moveTouchId !== touch.identifier && handLTouchId !== touch.identifier && handRTouchId !== touch.identifier) {
-                            lon = (touch.clientX - onPointerDownPointerX) * 0.2 + onPointerDownLon;
-                            lat = (onPointerDownPointerY - touch.clientY) * 0.2 + onPointerDownLat;
+                            lon = (touch.clientX - onPointerDownPointerX) * 0.25 + onPointerDownLon;
+                            lat = (onPointerDownPointerY - touch.clientY) * 0.25 + onPointerDownLat;
                         }
                     }
                 }
@@ -384,47 +380,26 @@
             document.addEventListener('touchend', (e) => {
                 for (let i = 0; i < e.changedTouches.length; i++) {
                     let touch = e.changedTouches[i];
-                    if (touch.identifier === moveTouchId) { moveTouchId = null; resetJoystick('knob-move'); moveForward = 0; moveRight = 0; }
-                    else if (touch.identifier === handLTouchId) { handLTouchId = null; resetJoystick('knob-hand-l'); handL_X = 0; handL_Y = 0; }
-                    else if (touch.identifier === handRTouchId) { handRTouchId = null; resetJoystick('knob-hand-r'); handR_X = 0; handR_Y = 0; }
+                    if (touch.identifier === moveTouchId) { moveTouchId = null; document.getElementById('knob-move').style.transform = 'translate(0,0)'; moveForward = 0; moveRight = 0; }
+                    else if (touch.identifier === handLTouchId) { handLTouchId = null; document.getElementById('knob-hand-l').style.transform = 'translate(0,0)'; handL_X = 0; handL_Y = 0; }
+                    else if (touch.identifier === handRTouchId) { handRTouchId = null; document.getElementById('knob-hand-r').style.transform = 'translate(0,0)'; handR_X = 0; handR_Y = 0; }
                 }
             });
-
-            function updateJoystick(baseId, knobId, touch, callback) {
-                const base = document.getElementById(baseId); const knob = document.getElementById(knobId);
-                const rect = base.getBoundingClientRect();
-                const kx = Math.max(-35, Math.min(35, touch.clientX - (rect.left + 42)));
-                const ky = Math.max(-35, Math.min(35, touch.clientY - (rect.top + 42)));
-                knob.style.transform = `translate(${kx}px, ${ky}px)`;
-                callback(kx / 35, ky / 35);
-            }
-            function resetJoystick(knobId) { document.getElementById(knobId).style.transform = 'translate(0px, 0px)'; }
 
             jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (canJump) { velocityY = 11; canJump = false; } });
         }
 
-        let lastWidth = window.innerWidth;
-        let lastHeight = window.innerHeight;
-
         function onWindowResize() {
-            if (Math.abs(window.innerWidth - lastWidth) > 50 || Math.abs(window.innerHeight - lastHeight) < 150) {
-                camera.aspect = window.innerWidth / window.innerHeight; 
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
-                lastWidth = window.innerWidth;
-                lastHeight = window.innerHeight;
-            }
+            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
         function animate() {
             requestAnimationFrame(animate);
-
-            const elapsed = clock.getElapsedTime();
-            const delta = Math.min(clock.getDelta(), 0.1);
+            const elapsed = clock.getElapsedTime(); const delta = Math.min(clock.getDelta(), 0.1);
 
             lat = Math.max(-85, Math.min(85, lat));
-            phi = THREE.MathUtils.degToRad(90 - lat);
-            theta = THREE.MathUtils.degToRad(lon);
+            phi = THREE.MathUtils.degToRad(90 - lat); theta = THREE.MathUtils.degToRad(lon);
 
             const targetPosition = new THREE.Vector3(
                 camera.position.x + Math.sin(phi) * Math.sin(theta),
@@ -433,41 +408,37 @@
             );
             camera.lookAt(targetPosition);
 
-            // --- SYSTÈME DE DÉPLACEMENT LOCAL CORRIGÉ ET ROBUSTE ---
-            // On sauvegarde l'altitude (Y) pour ne pas s'envoler en regardant en l'air
-            const oldY = camera.position.y;
-
-            // Déplacement sur l'axe local Z de la caméra (Avant/Arrière)
+            // --- DEPLACEMENT ROBUSTE PAR PROJECTION DE DIRECTION ---
+            const dirX = Math.sin(theta); const dirZ = Math.cos(theta);
+            
+            // Direction Avant/Arrière projetée au sol (Axe Y ignoré pour pas s'envoler)
             if (moveForward !== 0) {
-                camera.translateZ(-moveForward * 4 * delta);
+                camera.position.x += dirX * moveForward * 4 * delta;
+                camera.position.z += dirZ * moveForward * 4 * delta;
             }
-            // Déplacement sur l'axe local X de la caméra (Gauche/Droite)
+            // Direction Latérale (Gauche/Droite) orthogonale à la vue
             if (moveRight !== 0) {
-                camera.translateX(moveRight * 4 * delta);
+                camera.position.x += dirZ * moveRight * 4 * delta;
+                camera.position.z -= dirX * moveRight * 4 * delta;
             }
 
-            // On réapplique la physique sur l'axe Y pour éviter le vol libre
-            camera.position.y = oldY;
+            // Gestion des collisions simples
+            camera.position.x = Math.max(-5.5, Math.min(5.5, camera.position.x));
+            camera.position.z = Math.max(-5.5, Math.min(5.5, camera.position.z));
 
-            // Murs invisibles (Boîte de collision de la pièce)
-            camera.position.x = Math.max(-5.6, Math.min(5.6, camera.position.x));
-            camera.position.z = Math.max(-5.6, Math.min(5.6, camera.position.z));
-
-            // Gestion de la gravité et du saut
+            // Gravité
             velocityY -= 26 * delta; camera.position.y += velocityY * delta;
             if (camera.position.y < 2) { camera.position.y = 2; velocityY = 0; canJump = true; }
 
+            // Oscillation naturelle des mains
             const targetLeftHand = new THREE.Vector3(baseHandL.x + handL_X * 0.5, baseHandL.y + handL_Y * 0.5, baseHandL.z + (handL_Y !== 0 ? -Math.abs(handL_Y)*0.2 : 0));
             const targetRightHand = new THREE.Vector3(baseHandR.x + handR_X * 0.5, baseHandR.y + handR_Y * 0.5, baseHandR.z + (handR_Y !== 0 ? -Math.abs(handR_Y)*0.2 : 0));
-            
             if (moveForward !== 0 || moveRight !== 0) {
                 const wave = Math.sin(elapsed * 6) * 0.03;
                 if(handL_X === 0 && handL_Y === 0) targetLeftHand.y += wave;
                 if(handR_X === 0 && handR_Y === 0) targetRightHand.y -= wave;
             }
-
-            leftHand.position.lerp(targetLeftHand, 0.2);
-            rightHand.position.lerp(targetRightHand, 0.2);
+            leftHand.position.lerp(targetLeftHand, 0.2); rightHand.position.lerp(targetRightHand, 0.2);
 
             renderer.render(scene, camera);
         }
