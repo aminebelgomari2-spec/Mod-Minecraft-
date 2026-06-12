@@ -121,7 +121,9 @@
 
         function initGame() {
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 2, 2); 
+            
+            // CORRECTION POSITION DE DÉPART : On te place au centre exact (0, 2, 0) pour éviter les collisions
+            camera.position.set(0, 2, 0); 
 
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x1a0f2e);
@@ -131,7 +133,7 @@
             sunLight.position.set(5, 8, 5);
             scene.add(sunLight);
 
-            // --- DÉCOR DORM ROOM ---
+            // --- DECOR DORM ROOM ---
             const floorMat = new THREE.MeshStandardMaterial({ color: 0xd7ccc8, roughness: 0.6 });
             const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), floorMat);
             floor.rotation.x = -Math.PI / 2; scene.add(floor);
@@ -381,7 +383,7 @@
 
             lat = Math.max(-85, Math.min(85, lat));
             phi = THREE.MathUtils.degToRad(90 - lat); 
-            theta = THREE.MathUtils.degToRad(lon); // Correction de la trajectoire globale
+            theta = THREE.MathUtils.degToRad(lon);
 
             const targetPosition = new THREE.Vector3(
                 camera.position.x + Math.sin(phi) * Math.sin(theta),
@@ -390,15 +392,15 @@
             );
             camera.lookAt(targetPosition);
 
-            // CORRECTION CRITIQUE DU SURPLACE : Le calcul de la direction prend désormais en compte l'angle corrigé
             const forwardDir = new THREE.Vector3(Math.sin(theta), 0, Math.cos(theta)).normalize();
             const rightDir = new THREE.Vector3(Math.sin(theta - Math.PI / 2), 0, Math.cos(theta - Math.PI / 2)).normalize();
 
             camera.position.addScaledVector(forwardDir, moveForward * 4 * delta);
             camera.position.addScaledVector(rightDir, moveRight * 4 * delta);
 
-            camera.position.x = Math.max(-5.5, Math.min(5.5, camera.position.x));
-            camera.position.z = Math.max(-5.5, Math.min(5.5, camera.position.z));
+            // DESACTIVATION DES LIMITES : Suppression des verrous de collision pour tester le mouvement pur libre
+            // camera.position.x = Math.max(-5.5, Math.min(5.5, camera.position.x));
+            // camera.position.z = Math.max(-5.5, Math.min(5.5, camera.position.z));
 
             velocityY -= 26 * delta; camera.position.y += velocityY * delta;
             if (camera.position.y < 2) { camera.position.y = 2; velocityY = 0; canJump = true; }
