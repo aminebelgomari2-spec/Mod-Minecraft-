@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Rec Room - Dorm Room P2P (Voice Chat)</title>
+    <title>Rec Room - Dorm Room P2P (Voice Chat Fixed)</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; user-select: none; -webkit-user-select: none; background-color: #000; }
         #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
@@ -94,28 +94,32 @@
 
         let otherPlayers = {};
         let peer, connections = [];
-        let myLocalAudioStream = null; // Stocke ton micro
+        let myLocalAudioStream = null;
 
         document.getElementById('btn-create').addEventListener('click', () => { isHost = true; startSetup(); });
         document.getElementById('btn-join').addEventListener('click', () => { isHost = false; document.getElementById('room-input').style.display = 'block'; document.getElementById('btn-submit').style.display = 'inline-block'; });
         document.getElementById('btn-submit').addEventListener('click', () => { roomCode = document.getElementById('room-input').value.trim(); if(roomCode) startSetup(); });
 
-        async function startSetup() {
-            // Demande d'accès au micro avant de lancer
-            try {
-                myLocalAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-                console.log("Micro activé avec succès");
-            } catch (err) {
-                alert("Impossible d'activer le chat vocal sans accès au micro !");
-                console.error(err);
-            }
-
+        function startSetup() {
             const input = document.getElementById('username-input').value.trim();
             if(input) myUsername = input;
+            
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('touch-controls').style.display = 'block';
             document.getElementById('ui-layer').style.display = 'block';
+            
+            // On lance le jeu DIRECTEMENT sans attendre le micro
             initGame();
+
+            // On demande le micro en arrière-plan sans bloquer les mouvements
+            navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+                .then(stream => {
+                    myLocalAudioStream = stream;
+                    console.log("Micro activé avec succès !");
+                })
+                .catch(err => {
+                    console.warn("Le joueur a refusé le micro ou erreur audio.", err);
+                });
         }
 
         function initGame() {
@@ -220,12 +224,14 @@
                     connections.push(conn); 
                 });
 
-                // Répondre aux appels vocaux entrants
                 peer.on('call', (call) => {
-                    if (myLocalAudioStream) {
-                        call.answer(myLocalAudioStream);
-                        setupVoiceStream(call);
-                    }
+                    const checkStreamInterval = setInterval(() => {
+                        if (myLocalAudioStream) {
+                            call.answer(myLocalAudioStream);
+                            setupVoiceStream(call);
+                            clearInterval(checkStreamInterval);
+                        }
+                    }, 500);
                 });
             } else {
                 peer = new Peer();
@@ -235,18 +241,23 @@
                     setupConnectionEvents(conn); 
                     connections.push(conn);
 
-                    // Lancer l'appel vocal vers l'Hôte
-                    if (myLocalAudioStream) {
-                        const call = peer.call(roomCode, myLocalAudioStream);
-                        setupVoiceStream(call);
-                    }
+                    const checkStreamInterval = setInterval(() => {
+                        if (myLocalAudioStream) {
+                            const call = peer.call(roomCode, myLocalAudioStream);
+                            setupVoiceStream(call);
+                            clearInterval(checkStreamInterval);
+                        }
+                    }, 500);
                 });
 
                 peer.on('call', (call) => {
-                    if (myLocalAudioStream) {
-                        call.answer(myLocalAudioStream);
-                        setupVoiceStream(call);
-                    }
+                    const checkStreamInterval = setInterval(() => {
+                        if (myLocalAudioStream) {
+                            call.answer(myLocalAudioStream);
+                            setupVoiceStream(call);
+                            clearInterval(checkStreamInterval);
+                        }
+                    }, 500);
                 });
             }
             
@@ -262,10 +273,8 @@
             }, 40);
         }
 
-        // Configuration de la réception audio d'un autre joueur
         function setupVoiceStream(call) {
             call.on('stream', (remoteStream) => {
-                // Éviter de dupliquer l'élément audio pour le même joueur
                 if (document.getElementById(`audio-${call.peer}`)) return;
 
                 const audio = document.createElement('audio');
@@ -281,17 +290,18 @@
             conn.on('data', (data) => {
                 handlePlayerData(data);
                 if (isHost) {
-                    // L'hôte propage les données et force les connexions vocales croisées entre invités
                     connections.forEach(c => { 
                         if (c.peer !== conn.peer && c.open) {
                             c.send(data);
-                            // Permet aux invités de s'appeler entre eux
                             if(!otherPlayers[data.id]?.called) {
-                                if (myLocalAudioStream) {
-                                    const call = peer.call(data.id, myLocalAudioStream);
-                                    setupVoiceStream(call);
-                                }
-                                otherPlayers[data.id].called = true;
+                                const checkStreamInterval = setInterval(() => {
+                                    if (myLocalAudioStream) {
+                                        const call = peer.call(data.id, myLocalAudioStream);
+                                        setupVoiceStream(call);
+                                        clearInterval(checkStreamInterval);
+                                    }
+                                }, 500);
+                                if(otherPlayers[data.id]) otherPlayers[data.id].called = true;
                             }
                         } 
                     });
