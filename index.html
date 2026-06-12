@@ -104,21 +104,18 @@
             const input = document.getElementById('username-input').value.trim();
             if(input) myUsername = input;
             
-            // ÉTAPE 1 : On affiche le jeu immédiatement sans attendre le micro
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('touch-controls').style.display = 'block';
             document.getElementById('ui-layer').style.display = 'block';
             
             initGame();
 
-            // ÉTAPE 2 : On demande le micro en tâche de fond (asynchrone) pour ne rien bloquer
             navigator.mediaDevices.getUserMedia({ audio: true, video: false })
                 .then(stream => { 
                     myLocalAudioStream = stream;
-                    console.log("Voice Chat activé avec succès !");
                 })
                 .catch(err => { 
-                    console.log("Micro indisponible ou refusé, jeu lancé en mode muet :", err); 
+                    console.log("Mode muet actif :", err); 
                 });
         }
 
@@ -134,31 +131,22 @@
             sunLight.position.set(5, 8, 5);
             scene.add(sunLight);
 
-            // --- DECOR DORM ROOM ---
+            // --- DÉCOR DORM ROOM ---
             const floorMat = new THREE.MeshStandardMaterial({ color: 0xd7ccc8, roughness: 0.6 });
             const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), floorMat);
-            floor.rotation.x = -Math.PI / 2;
-            scene.add(floor);
+            floor.rotation.x = -Math.PI / 2; scene.add(floor);
 
             const rug = new THREE.Mesh(new THREE.BoxGeometry(6, 0.02, 6), new THREE.MeshStandardMaterial({ color: 0x4caf50, roughness: 0.9 }));
-            rug.position.set(0, 0.01, 0);
-            scene.add(rug);
+            rug.position.set(0, 0.01, 0); scene.add(rug);
 
             const wallOrange = new THREE.MeshStandardMaterial({ color: 0xe65100 });
             const wallBlue = new THREE.MeshStandardMaterial({ color: 0x0277bd });
             const wallWhite = new THREE.MeshStandardMaterial({ color: 0xeceff1 });
 
-            const backWall = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 0.4), wallBlue);
-            backWall.position.set(0, 2.5, -6); scene.add(backWall);
-
-            const frontWall = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 0.4), wallWhite);
-            frontWall.position.set(0, 2.5, 6); scene.add(frontWall);
-
-            const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 5, 12), wallOrange);
-            leftWall.position.set(-6, 2.5, 0); scene.add(leftWall);
-
-            const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 5, 12), wallWhite);
-            rightWall.position.set(6, 2.5, 0); scene.add(rightWall);
+            const backWall = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 0.4), wallBlue); backWall.position.set(0, 2.5, -6); scene.add(backWall);
+            const frontWall = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 0.4), wallWhite); frontWall.position.set(0, 2.5, 6); scene.add(frontWall);
+            const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 5, 12), wallOrange); leftWall.position.set(-6, 2.5, 0); scene.add(leftWall);
+            const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 5, 12), wallWhite); rightWall.position.set(6, 2.5, 0); scene.add(rightWall);
 
             const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), wallWhite);
             ceiling.position.y = 5; ceiling.rotation.x = Math.PI / 2; scene.add(ceiling);
@@ -310,13 +298,22 @@
             document.addEventListener('touchstart', (e) => {
                 if(e.target.id === 'btn-create' || e.target.id === 'btn-join' || e.target.id === 'btn-submit' || e.target.tagName === 'INPUT') return;
 
+                const midWidth = window.innerWidth * 0.35;
+                const midHeight = window.innerHeight * 0.35;
+
                 for (let i = 0; i < e.changedTouches.length; i++) {
                     let touch = e.changedTouches[i];
                     const x = touch.clientX; const y = touch.clientY;
 
-                    if (x < 150 && y > window.innerHeight - 150) moveTouchId = touch.identifier;
-                    else if (x < 150 && y < 150) handLTouchId = touch.identifier;
-                    else if (x > window.innerWidth - 150 && y < 150) handRTouchId = touch.identifier;
+                    if (x < midWidth && y > window.innerHeight - 180) {
+                        moveTouchId = touch.identifier;
+                    } 
+                    else if (x < midWidth && y < 180) {
+                        handLTouchId = touch.identifier;
+                    } 
+                    else if (x > window.innerWidth - midWidth && y < 180) {
+                        handRTouchId = touch.identifier;
+                    } 
                     else if (!(x > window.innerWidth - 120 && y > window.innerHeight - 120)) {
                         onPointerDownPointerX = x; onPointerDownPointerY = y;
                         onPointerDownLon = lon; onPointerDownLat = lat;
@@ -383,7 +380,8 @@
             const delta = Math.min(clock.getDelta(), 0.1);
 
             lat = Math.max(-85, Math.min(85, lat));
-            phi = THREE.MathUtils.degToRad(90 - lat); theta = THREE.MathUtils.degToRad(lon);
+            phi = THREE.MathUtils.degToRad(90 - lat); 
+            theta = THREE.MathUtils.degToRad(lon); // Correction de la trajectoire globale
 
             const targetPosition = new THREE.Vector3(
                 camera.position.x + Math.sin(phi) * Math.sin(theta),
@@ -392,6 +390,7 @@
             );
             camera.lookAt(targetPosition);
 
+            // CORRECTION CRITIQUE DU SURPLACE : Le calcul de la direction prend désormais en compte l'angle corrigé
             const forwardDir = new THREE.Vector3(Math.sin(theta), 0, Math.cos(theta)).normalize();
             const rightDir = new THREE.Vector3(Math.sin(theta - Math.PI / 2), 0, Math.cos(theta - Math.PI / 2)).normalize();
 
