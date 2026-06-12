@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Rec Room - Dorm Room P2P</title>
+    <title>Rec Room - Dorm Room P2P (Voice Chat)</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; user-select: none; -webkit-user-select: none; background-color: #000; }
         #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
@@ -50,6 +50,7 @@
 
     <div id="login-screen">
         <h1 style="margin-bottom: 5px;">DORM ROOM 3D</h1>
+        <p style="margin: 0 0 15px 0; font-size: 12px; opacity: 0.8;">Active ton micro pour parler aux autres</p>
         <input type="text" id="username-input" placeholder="Ton Pseudo..." maxlength="12">
         
         <div>
@@ -93,12 +94,22 @@
 
         let otherPlayers = {};
         let peer, connections = [];
+        let myLocalAudioStream = null; // Stocke ton micro
 
         document.getElementById('btn-create').addEventListener('click', () => { isHost = true; startSetup(); });
         document.getElementById('btn-join').addEventListener('click', () => { isHost = false; document.getElementById('room-input').style.display = 'block'; document.getElementById('btn-submit').style.display = 'inline-block'; });
         document.getElementById('btn-submit').addEventListener('click', () => { roomCode = document.getElementById('room-input').value.trim(); if(roomCode) startSetup(); });
 
-        function startSetup() {
+        async function startSetup() {
+            // Demande d'accès au micro avant de lancer
+            try {
+                myLocalAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                console.log("Micro activé avec succès");
+            } catch (err) {
+                alert("Impossible d'activer le chat vocal sans accès au micro !");
+                console.error(err);
+            }
+
             const input = document.getElementById('username-input').value.trim();
             if(input) myUsername = input;
             document.getElementById('login-screen').style.display = 'none';
@@ -203,13 +214,39 @@
                 const generatedId = "REC-" + Math.floor(1000 + Math.random() * 9000);
                 peer = new Peer(generatedId);
                 peer.on('open', (id) => { document.getElementById('room-display').innerText = "Code de ta Chambre : " + id; });
-                peer.on('connection', (conn) => { setupConnectionEvents(conn); connections.push(conn); });
+                
+                peer.on('connection', (conn) => { 
+                    setupConnectionEvents(conn); 
+                    connections.push(conn); 
+                });
+
+                // Répondre aux appels vocaux entrants
+                peer.on('call', (call) => {
+                    if (myLocalAudioStream) {
+                        call.answer(myLocalAudioStream);
+                        setupVoiceStream(call);
+                    }
+                });
             } else {
                 peer = new Peer();
                 peer.on('open', () => {
                     document.getElementById('room-display').innerText = "Dans la Chambre : " + roomCode;
                     const conn = peer.connect(roomCode);
-                    setupConnectionEvents(conn); connections.push(conn);
+                    setupConnectionEvents(conn); 
+                    connections.push(conn);
+
+                    // Lancer l'appel vocal vers l'Hôte
+                    if (myLocalAudioStream) {
+                        const call = peer.call(roomCode, myLocalAudioStream);
+                        setupVoiceStream(call);
+                    }
+                });
+
+                peer.on('call', (call) => {
+                    if (myLocalAudioStream) {
+                        call.answer(myLocalAudioStream);
+                        setupVoiceStream(call);
+                    }
                 });
             }
             
@@ -225,11 +262,39 @@
             }, 40);
         }
 
+        // Configuration de la réception audio d'un autre joueur
+        function setupVoiceStream(call) {
+            call.on('stream', (remoteStream) => {
+                // Éviter de dupliquer l'élément audio pour le même joueur
+                if (document.getElementById(`audio-${call.peer}`)) return;
+
+                const audio = document.createElement('audio');
+                audio.id = `audio-${call.peer}`;
+                audio.srcObject = remoteStream;
+                audio.autoplay = true;
+                audio.style.display = 'none';
+                document.body.appendChild(audio);
+            });
+        }
+
         function setupConnectionEvents(conn) {
             conn.on('data', (data) => {
                 handlePlayerData(data);
                 if (isHost) {
-                    connections.forEach(c => { if (c.peer !== conn.peer && c.open) c.send(data); });
+                    // L'hôte propage les données et force les connexions vocales croisées entre invités
+                    connections.forEach(c => { 
+                        if (c.peer !== conn.peer && c.open) {
+                            c.send(data);
+                            // Permet aux invités de s'appeler entre eux
+                            if(!otherPlayers[data.id]?.called) {
+                                if (myLocalAudioStream) {
+                                    const call = peer.call(data.id, myLocalAudioStream);
+                                    setupVoiceStream(call);
+                                }
+                                otherPlayers[data.id].called = true;
+                            }
+                        } 
+                    });
                 }
             });
             conn.on('close', () => {
@@ -237,6 +302,8 @@
                     if(otherPlayers[id].peerId === conn.peer) {
                         scene.remove(otherPlayers[id].body);
                         scene.remove(otherPlayers[id].label);
+                        const audioEl = document.getElementById(`audio-${conn.peer}`);
+                        if(audioEl) audioEl.remove();
                         delete otherPlayers[id];
                     }
                 });
@@ -269,7 +336,7 @@
                 labelSprite.scale.set(2, 0.5, 1);
                 scene.add(labelSprite);
 
-                otherPlayers[id] = { body: playerGroup, label: labelSprite, lh: oLeftHand, rh: oRightHand, peerId: id };
+                otherPlayers[id] = { body: playerGroup, label: labelSprite, lh: oLeftHand, rh: oRightHand, peerId: id, called: false };
                 updateCount();
             }
 
@@ -346,17 +413,10 @@
             jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (canJump) { velocityY = 11; canJump = false; } });
         }
 
-        let lastWidth = window.innerWidth;
-        let lastHeight = window.innerHeight;
-
         function onWindowResize() {
-            if (Math.abs(window.innerWidth - lastWidth) > 50 || Math.abs(window.innerHeight - lastHeight) < 150) {
-                camera.aspect = window.innerWidth / window.innerHeight; 
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
-                lastWidth = window.innerWidth;
-                lastHeight = window.innerHeight;
-            }
+            camera.aspect = window.innerWidth / window.innerHeight; 
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
         function animate() {
@@ -365,7 +425,6 @@
             const elapsed = clock.getElapsedTime();
             const delta = Math.min(clock.getDelta(), 0.1);
 
-            // Vue direction caméra
             lat = Math.max(-85, Math.min(85, lat));
             phi = THREE.MathUtils.degToRad(90 - lat);
             theta = THREE.MathUtils.degToRad(lon);
@@ -377,14 +436,12 @@
             );
             camera.lookAt(targetPosition);
 
-            // Déplacement local
             const forwardDir = new THREE.Vector3(Math.sin(theta), 0, Math.cos(theta)).normalize();
             const rightDir = new THREE.Vector3(Math.sin(theta - Math.PI / 2), 0, Math.cos(theta - Math.PI / 2)).normalize();
 
             camera.position.addScaledVector(forwardDir, moveForward * 4 * delta);
             camera.position.addScaledVector(rightDir, moveRight * 4 * delta);
 
-            // Collisions avec les murs de la chambre (Pour ne pas tomber dans le vide !)
             camera.position.x = Math.max(-5.5, Math.min(5.5, camera.position.x));
             camera.position.z = Math.max(-5.5, Math.min(5.5, camera.position.z));
 
