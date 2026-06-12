@@ -50,6 +50,7 @@
 
     <div id="login-screen">
         <h1 style="margin-bottom: 5px;">DORM ROOM 3D</h1>
+        <p style="margin: 0 0 15px 0; font-size: 12px; opacity: 0.8;">Voice Chat Actif</p>
         <input type="text" id="username-input" placeholder="Ton Pseudo..." maxlength="12">
         
         <div>
@@ -93,6 +94,7 @@
 
         let otherPlayers = {};
         let peer, connections = [];
+        let myLocalAudioStream = null; // Flux micro local
 
         document.getElementById('btn-create').addEventListener('click', () => { isHost = true; startSetup(); });
         document.getElementById('btn-join').addEventListener('click', () => { isHost = false; document.getElementById('room-input').style.display = 'block'; document.getElementById('btn-submit').style.display = 'inline-block'; });
@@ -104,100 +106,94 @@
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('touch-controls').style.display = 'block';
             document.getElementById('ui-layer').style.display = 'block';
+            
             initGame();
+
+            // Demande l'accès au microphone de manière asynchrone pour ne pas bloquer l'affichage 3D
+            navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+                .then(stream => { 
+                    myLocalAudioStream = stream;
+                    console.log("Microphone activé avec succès.");
+                })
+                .catch(err => { 
+                    console.log("Microphone refusé ou indisponible :", err); 
+                });
         }
 
         function initGame() {
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            // On commence au milieu de la chambre
             camera.position.set(0, 2, 2); 
 
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x1a0f2e);
 
-            // Lumières chaleureuses de la chambre
             scene.add(new THREE.AmbientLight(0xffffff, 0.6));
             const sunLight = new THREE.DirectionalLight(0xfff1e0, 0.6);
             sunLight.position.set(5, 8, 5);
             scene.add(sunLight);
 
             // --- CRÉATION DE LA DORM ROOM ---
-            // 1. Le Sol en bois clair
             const floorMat = new THREE.MeshStandardMaterial({ color: 0xd7ccc8, roughness: 0.6 });
             const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), floorMat);
             floor.rotation.x = -Math.PI / 2;
             scene.add(floor);
 
-            // Tapis vert Rec Room au milieu
             const rug = new THREE.Mesh(new THREE.BoxGeometry(6, 0.02, 6), new THREE.MeshStandardMaterial({ color: 0x4caf50, roughness: 0.9 }));
             rug.position.set(0, 0.01, 0);
             scene.add(rug);
 
-            // 2. Les Murs (Chambre fermée de 12x12, hauteur 5)
-            const wallOrange = new THREE.MeshStandardMaterial({ color: 0xe65100 }); // Orange Rec Room
-            const wallBlue = new THREE.MeshStandardMaterial({ color: 0x0277bd });   // Bleu Rec Room
-            const wallWhite = new THREE.MeshStandardMaterial({ color: 0xeceff1 });  // Blanc cassé
+            const wallOrange = new THREE.MeshStandardMaterial({ color: 0xe65100 });
+            const wallBlue = new THREE.MeshStandardMaterial({ color: 0x0277bd });
+            const wallWhite = new THREE.MeshStandardMaterial({ color: 0xeceff1 });
 
-            // Mur Fond (Lit)
             const backWall = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 0.4), wallBlue);
             backWall.position.set(0, 2.5, -6);
             scene.add(backWall);
 
-            // Mur Avant (Porte)
             const frontWall = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 0.4), wallWhite);
             frontWall.position.set(0, 2.5, 6);
             scene.add(frontWall);
 
-            // Mur Gauche
             const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 5, 12), wallOrange);
             leftWall.position.set(-6, 2.5, 0);
             scene.add(leftWall);
 
-            // Mur Droit (Fenêtre/Miroir)
             const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 5, 12), wallWhite);
             rightWall.position.set(6, 2.5, 0);
             scene.add(rightWall);
 
-            // Plafond
             const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), wallWhite);
             ceiling.position.y = 5;
             ceiling.rotation.x = Math.PI / 2;
             scene.add(ceiling);
 
-            // 3. MEUBLES & DECO RECC ROOM
-            // Le Lit
             const bedGroup = new THREE.Group();
             const bedBase = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.6, 4), new THREE.MeshStandardMaterial({ color: 0x3e2723 }));
             bedBase.position.set(0, 0.3, 0);
-            const mattress = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.4, 3.8), new THREE.MeshStandardMaterial({ color: 0xffa726 })); // Couverture Orange
+            const mattress = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.4, 3.8), new THREE.MeshStandardMaterial({ color: 0xffa726 }));
             mattress.position.set(0, 0.7, 0);
             const pillow = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.2, 0.8), new THREE.MeshStandardMaterial({ color: 0xffffff }));
             pillow.position.set(0, 0.9, -1.4);
             bedGroup.add(bedBase, mattress, pillow);
-            bedGroup.position.set(-4.5, 0, -3.8); // Placé dans le coin gauche du fond
+            bedGroup.position.set(-4.5, 0, -3.8);
             scene.add(bedGroup);
 
-            // Le Miroir Rec Room
             const mirrorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.2, 1.5), new THREE.MeshStandardMaterial({ color: 0xff5722 }));
             mirrorFrame.position.set(5.75, 1.8, 0);
             const mirrorGlass = new THREE.Mesh(new THREE.BoxGeometry(0.11, 2, 1.3), new THREE.MeshStandardMaterial({ color: 0xcfd8dc, roughness: 0, metalness: 0.9 }));
             mirrorGlass.position.set(5.75, 1.8, 0);
             scene.add(mirrorFrame, mirrorGlass);
 
-            // La Porte de sortie du dortoir
             const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.8, 0.1), new THREE.MeshStandardMaterial({ color: 0x212121 }));
             doorFrame.position.set(0, 1.4, 5.75);
-            const doorKey = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.6, 0.12), new THREE.MeshStandardMaterial({ color: 0x00bcd4 })); // Porte Turquoise emblématique
+            const doorKey = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.6, 0.12), new THREE.MeshStandardMaterial({ color: 0x00bcd4 }));
             doorKey.position.set(0, 1.4, 5.75);
             scene.add(doorFrame, doorKey);
 
-            // Petite Étagère en bois
             const shelf = new THREE.Mesh(new THREE.BoxGeometry(3, 0.1, 0.8), new THREE.MeshStandardMaterial({ color: 0x5d4037 }));
             shelf.position.set(4.4, 2.2, -5.4);
             scene.add(shelf);
 
-
-            // Mes Mains Locales
             const handGeo = new THREE.SphereGeometry(0.12, 16, 16);
             const handMat = new THREE.MeshStandardMaterial({ color: 0xff5722 });
             leftHand = new THREE.Mesh(handGeo, handMat); leftHand.position.copy(baseHandL); camera.add(leftHand);
@@ -209,29 +205,52 @@
             document.getElementById('canvas-container').appendChild(renderer.domElement);
 
             setupMobileControls();
-            initNetworkP2P(); // LE SYSTÈME RÉSEAU INTACT ET SÉCURISÉ
+            initNetworkP2P();
             
             window.addEventListener('resize', onWindowResize);
             animate();
         }
 
-        // --- CODE RÉSEAU P2P IDENTIQUE ET INTÉGRAL ---
+        // --- CODE RÉSEAU AVEC AUDIO INTEGRÉ ---
         function initNetworkP2P() {
             if (isHost) {
                 const generatedId = "REC-" + Math.floor(1000 + Math.random() * 9000);
                 peer = new Peer(generatedId);
                 peer.on('open', (id) => { document.getElementById('room-display').innerText = "Code de ta Chambre : " + id; });
                 peer.on('connection', (conn) => { setupConnectionEvents(conn); connections.push(conn); });
+                
+                // Le Host reçoit un appel vocal d'un invité
+                peer.on('call', (call) => {
+                    if (myLocalAudioStream) call.answer(myLocalAudioStream);
+                    else call.answer();
+                    handleVoiceStream(call);
+                });
             } else {
                 peer = new Peer();
                 peer.on('open', () => {
                     document.getElementById('room-display').innerText = "Dans la Chambre : " + roomCode;
                     const conn = peer.connect(roomCode);
                     setupConnectionEvents(conn); connections.push(conn);
+                    
+                    // L'invité appelle automatiquement le Host avec sa voix si le micro est prêt
+                    if (myLocalAudioStream) {
+                        peer.call(roomCode, myLocalAudioStream);
+                    } else {
+                        // Petit délai au cas où le micro s'active juste après la co
+                        setTimeout(() => { if (myLocalAudioStream) peer.call(roomCode, myLocalAudioStream); }, 2000);
+                    }
+                });
+
+                // L'invité reçoit un appel vocal du Host ou d'autres pairs via le Host
+                peer.on('call', (call) => {
+                    if (myLocalAudioStream) call.answer(myLocalAudioStream);
+                    else call.answer();
+                    handleVoiceStream(call);
                 });
             }
             
             setInterval(() => {
+                if (!peer || peer.destroyed || !peer.id) return;
                 const wpL = new THREE.Vector3(); leftHand.getWorldPosition(wpL);
                 const wpR = new THREE.Vector3(); rightHand.getWorldPosition(wpR);
                 const myData = {
@@ -243,11 +262,33 @@
             }, 40);
         }
 
+        // Réception et lecture du son des autres joueurs
+        function handleVoiceStream(call) {
+            call.on('stream', (remoteStream) => {
+                if (document.getElementById(`audio-${call.peer}`)) return;
+                const audioEl = document.createElement('audio');
+                audioEl.id = `audio-${call.peer}`; 
+                audioEl.srcObject = remoteStream; 
+                audioEl.autoplay = true; 
+                audioEl.style.display = 'none';
+                document.body.appendChild(audioEl);
+            });
+        }
+
         function setupConnectionEvents(conn) {
             conn.on('data', (data) => {
                 handlePlayerData(data);
                 if (isHost) {
-                    connections.forEach(c => { if (c.peer !== conn.peer && c.open) c.send(data); });
+                    connections.forEach(c => { 
+                        if (c.peer !== conn.peer && c.open) {
+                            c.send(data);
+                            // Le Host connecte vocalement les invités entre eux
+                            if (otherPlayers[data.id] && !otherPlayers[data.id].called && myLocalAudioStream) {
+                                peer.call(data.id, myLocalAudioStream);
+                                otherPlayers[data.id].called = true;
+                            }
+                        } 
+                    });
                 }
             });
             conn.on('close', () => {
@@ -255,6 +296,7 @@
                     if(otherPlayers[id].peerId === conn.peer) {
                         scene.remove(otherPlayers[id].body);
                         scene.remove(otherPlayers[id].label);
+                        const audioEl = document.getElementById(`audio-${conn.peer}`); if (audioEl) audioEl.remove();
                         delete otherPlayers[id];
                     }
                 });
@@ -267,7 +309,6 @@
 
             if (!otherPlayers[id]) {
                 const playerGroup = new THREE.Group();
-                // Avatar bleu style Rec Room (sans jambes)
                 const bodyMesh = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), new THREE.MeshStandardMaterial({ color: 0x0287bd }));
                 playerGroup.add(bodyMesh);
 
@@ -288,7 +329,7 @@
                 labelSprite.scale.set(2, 0.5, 1);
                 scene.add(labelSprite);
 
-                otherPlayers[id] = { body: playerGroup, label: labelSprite, lh: oLeftHand, rh: oRightHand, peerId: id };
+                otherPlayers[id] = { body: playerGroup, label: labelSprite, lh: oLeftHand, rh: oRightHand, peerId: id, called: false };
                 updateCount();
             }
 
@@ -304,7 +345,6 @@
             document.getElementById('player-count').innerText = `${count} joueur(s) dans la Chambre`;
         }
 
-        // Contrôles tactiles mobiles
         function setupMobileControls() {
             const jumpBtn = document.getElementById('jump-button');
             let moveTouchId = null, handLTouchId = null, handRTouchId = null;
@@ -391,7 +431,6 @@
             camera.position.addScaledVector(forwardDir, moveForward * 4 * delta);
             camera.position.addScaledVector(rightDir, moveRight * 4 * delta);
 
-            // Collisions avec les murs de la chambre (Pour ne pas tomber dans le vide !)
             camera.position.x = Math.max(-5.5, Math.min(5.5, camera.position.x));
             camera.position.z = Math.max(-5.5, Math.min(5.5, camera.position.z));
 
