@@ -94,7 +94,7 @@
 
         let otherPlayers = {};
         let peer, connections = [];
-        let myLocalAudioStream = null; // Stocke ton flux micro
+        let myLocalAudioStream = null;
 
         document.getElementById('btn-create').addEventListener('click', () => { isHost = true; startSetup(); });
         document.getElementById('btn-join').addEventListener('click', () => { isHost = false; document.getElementById('room-input').style.display = 'block'; document.getElementById('btn-submit').style.display = 'inline-block'; });
@@ -107,17 +107,15 @@
             document.getElementById('touch-controls').style.display = 'block';
             document.getElementById('ui-layer').style.display = 'block';
             
-            // On demande l'accès micro dès l'interaction de l'utilisateur (requis par Safari/iOS)
             navigator.mediaDevices.getUserMedia({ audio: true, video: false })
                 .then(stream => {
                     myLocalAudioStream = stream;
-                    console.log("Micro activé avec succès !");
+                    console.log("Micro activé !");
                 })
                 .catch(err => {
-                    console.log("Audio non disponible ou refusé :", err);
+                    console.log("Audio non dispo :", err);
                 })
                 .finally(() => {
-                    // Lance le jeu dans tous les cas, même si le micro est bloqué ou refusé
                     initGame();
                 });
         }
@@ -220,7 +218,6 @@
                 peer.on('open', (id) => { document.getElementById('room-display').innerText = "Code de ta Chambre : " + id; });
                 peer.on('connection', (conn) => { setupConnectionEvents(conn); connections.push(conn); });
                 
-                // Le Host reçoit un appel vocal
                 peer.on('call', (call) => {
                     if (myLocalAudioStream) {
                         call.answer(myLocalAudioStream);
@@ -234,14 +231,12 @@
                     const conn = peer.connect(roomCode);
                     setupConnectionEvents(conn); connections.push(conn);
                     
-                    // L'invité appelle le Host avec sa voix
                     if (myLocalAudioStream) {
                         const call = peer.call(roomCode, myLocalAudioStream);
                         handleVoiceStream(call);
                     }
                 });
 
-                // L'invité reçoit un appel en retour
                 peer.on('call', (call) => {
                     if (myLocalAudioStream) {
                         call.answer(myLocalAudioStream);
@@ -263,12 +258,9 @@
             }, 40);
         }
 
-        // Gérer le flux audio entrant
         function handleVoiceStream(call) {
             call.on('stream', (remoteStream) => {
-                // Éviter les doublons audio pour le même joueur
                 if (document.getElementById(`audio-${call.peer}`)) return;
-
                 const audioEl = document.createElement('audio');
                 audioEl.id = `audio-${call.peer}`;
                 audioEl.srcObject = remoteStream;
@@ -286,7 +278,6 @@
                     connections.forEach(c => { 
                         if (c.peer !== conn.peer && c.open) {
                             c.send(data);
-                            // Le Host connecte en vocal les invités entre eux
                             if (!otherPlayers[data.id]?.called && myLocalAudioStream) {
                                 const call = peer.call(data.id, myLocalAudioStream);
                                 handleVoiceStream(call);
@@ -301,11 +292,8 @@
                     if(otherPlayers[id].peerId === conn.peer) {
                         scene.remove(otherPlayers[id].body);
                         scene.remove(otherPlayers[id].label);
-                        
-                        // Nettoyer l'élément audio quand un joueur quitte
                         const audioEl = document.getElementById(`audio-${conn.peer}`);
                         if (audioEl) audioEl.remove();
-
                         delete otherPlayers[id];
                     }
                 });
@@ -445,14 +433,16 @@
             );
             camera.lookAt(targetPosition);
 
+            // FORMULE CORRIGÉE : Utilise theta pour se déplacer correctement par rapport à l'orientation
             const forwardDir = new THREE.Vector3(Math.sin(theta), 0, Math.cos(theta)).normalize();
-            const rightDir = new THREE.Vector3(Math.sin(theta - Math.PI / 2), 0, Math.cos(theta - Math.PI / 2)).normalize();
+            const rightDir = new THREE.Vector3(Math.cos(theta), 0, -Math.sin(theta)).normalize();
 
             camera.position.addScaledVector(forwardDir, moveForward * 4 * delta);
             camera.position.addScaledVector(rightDir, moveRight * 4 * delta);
 
-            camera.position.x = Math.max(-5.5, Math.min(5.5, camera.position.x));
-            camera.position.z = Math.max(-5.5, Math.min(5.5, camera.position.z));
+            // CORRECTION DES COLLISIONS INVISIBLES : Élargissement des limites pour éviter le blocage immédiat
+            camera.position.x = Math.max(-5.7, Math.min(5.7, camera.position.x));
+            camera.position.z = Math.max(-5.7, Math.min(5.7, camera.position.z));
 
             velocityY -= 26 * delta; camera.position.y += velocityY * delta;
             if (camera.position.y < 2) { camera.position.y = 2; velocityY = 0; canJump = true; }
