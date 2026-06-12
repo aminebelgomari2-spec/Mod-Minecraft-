@@ -50,6 +50,7 @@
 
     <div id="login-screen">
         <h1 style="margin-bottom: 5px;">DORM ROOM 3D</h1>
+        <p style="margin: 0 0 15px 0; font-size: 12px; opacity: 0.8;">Voice Chat Intégré</p>
         <input type="text" id="username-input" placeholder="Ton Pseudo..." maxlength="12">
         
         <div>
@@ -93,6 +94,7 @@
 
         let otherPlayers = {};
         let peer, connections = [];
+        let myLocalAudioStream = null; // Stocke ton flux micro
 
         document.getElementById('btn-create').addEventListener('click', () => { isHost = true; startSetup(); });
         document.getElementById('btn-join').addEventListener('click', () => { isHost = false; document.getElementById('room-input').style.display = 'block'; document.getElementById('btn-submit').style.display = 'inline-block'; });
@@ -104,7 +106,20 @@
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('touch-controls').style.display = 'block';
             document.getElementById('ui-layer').style.display = 'block';
-            initGame();
+            
+            // On demande l'accès micro dès l'interaction de l'utilisateur (requis par Safari/iOS)
+            navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+                .then(stream => {
+                    myLocalAudioStream = stream;
+                    console.log("Micro activé avec succès !");
+                })
+                .catch(err => {
+                    console.log("Audio non disponible ou refusé :", err);
+                })
+                .finally(() => {
+                    // Lance le jeu dans tous les cas, même si le micro est bloqué ou refusé
+                    initGame();
+                });
         }
 
         function initGame() {
@@ -204,12 +219,34 @@
                 peer = new Peer(generatedId);
                 peer.on('open', (id) => { document.getElementById('room-display').innerText = "Code de ta Chambre : " + id; });
                 peer.on('connection', (conn) => { setupConnectionEvents(conn); connections.push(conn); });
+                
+                // Le Host reçoit un appel vocal
+                peer.on('call', (call) => {
+                    if (myLocalAudioStream) {
+                        call.answer(myLocalAudioStream);
+                        handleVoiceStream(call);
+                    }
+                });
             } else {
                 peer = new Peer();
                 peer.on('open', () => {
                     document.getElementById('room-display').innerText = "Dans la Chambre : " + roomCode;
                     const conn = peer.connect(roomCode);
                     setupConnectionEvents(conn); connections.push(conn);
+                    
+                    // L'invité appelle le Host avec sa voix
+                    if (myLocalAudioStream) {
+                        const call = peer.call(roomCode, myLocalAudioStream);
+                        handleVoiceStream(call);
+                    }
+                });
+
+                // L'invité reçoit un appel en retour
+                peer.on('call', (call) => {
+                    if (myLocalAudioStream) {
+                        call.answer(myLocalAudioStream);
+                        handleVoiceStream(call);
+                    }
                 });
             }
             
@@ -226,11 +263,37 @@
             }, 40);
         }
 
+        // Gérer le flux audio entrant
+        function handleVoiceStream(call) {
+            call.on('stream', (remoteStream) => {
+                // Éviter les doublons audio pour le même joueur
+                if (document.getElementById(`audio-${call.peer}`)) return;
+
+                const audioEl = document.createElement('audio');
+                audioEl.id = `audio-${call.peer}`;
+                audioEl.srcObject = remoteStream;
+                audioEl.autoplay = true;
+                audioEl.controls = false;
+                audioEl.style.display = 'none';
+                document.body.appendChild(audioEl);
+            });
+        }
+
         function setupConnectionEvents(conn) {
             conn.on('data', (data) => {
                 handlePlayerData(data);
                 if (isHost) {
-                    connections.forEach(c => { if (c.peer !== conn.peer && c.open) c.send(data); });
+                    connections.forEach(c => { 
+                        if (c.peer !== conn.peer && c.open) {
+                            c.send(data);
+                            // Le Host connecte en vocal les invités entre eux
+                            if (!otherPlayers[data.id]?.called && myLocalAudioStream) {
+                                const call = peer.call(data.id, myLocalAudioStream);
+                                handleVoiceStream(call);
+                                if (otherPlayers[data.id]) otherPlayers[data.id].called = true;
+                            }
+                        } 
+                    });
                 }
             });
             conn.on('close', () => {
@@ -238,6 +301,11 @@
                     if(otherPlayers[id].peerId === conn.peer) {
                         scene.remove(otherPlayers[id].body);
                         scene.remove(otherPlayers[id].label);
+                        
+                        // Nettoyer l'élément audio quand un joueur quitte
+                        const audioEl = document.getElementById(`audio-${conn.peer}`);
+                        if (audioEl) audioEl.remove();
+
                         delete otherPlayers[id];
                     }
                 });
@@ -270,7 +338,7 @@
                 labelSprite.scale.set(2, 0.5, 1);
                 scene.add(labelSprite);
 
-                otherPlayers[id] = { body: playerGroup, label: labelSprite, lh: oLeftHand, rh: oRightHand, peerId: id };
+                otherPlayers[id] = { body: playerGroup, label: labelSprite, lh: oLeftHand, rh: oRightHand, peerId: id, called: false };
                 updateCount();
             }
 
@@ -347,10 +415,17 @@
             jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (canJump) { velocityY = 11; canJump = false; } });
         }
 
+        let lastWidth = window.innerWidth;
+        let lastHeight = window.innerHeight;
+
         function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight; 
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
+            if (Math.abs(window.innerWidth - lastWidth) > 50 || Math.abs(window.innerHeight - lastHeight) < 150) {
+                camera.aspect = window.innerWidth / window.innerHeight; 
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                lastWidth = window.innerWidth;
+                lastHeight = window.innerHeight;
+            }
         }
 
         function animate() {
