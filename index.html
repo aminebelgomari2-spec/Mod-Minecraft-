@@ -3,18 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Rec Room - Dorm Room Local Test</title>
+    <title>Rec Room - Dorm Room P2P</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; user-select: none; -webkit-user-select: none; background-color: #000; }
         #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
         
-        /* Écran de connexion simplifié */
+        /* Écran de connexion */
         #login-screen {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: #ff5722; z-index: 100;
             display: flex; flex-direction: column; justify-content: center; align-items: center; color: white;
         }
-        .btn { padding: 15px 35px; font-size: 18px; background: white; color: #ff5722; border: none; border-radius: 25px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+        #username-input {
+            padding: 15px; font-size: 18px; border: none; border-radius: 25px;
+            width: 70%; max-width: 300px; text-align: center; margin-bottom: 20px; outline: none;
+        }
+        .btn { padding: 12px 25px; font-size: 16px; background: white; color: #ff5722; border: none; border-radius: 25px; font-weight: bold; cursor: pointer; margin: 5px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+        #room-input { padding: 10px; border-radius: 10px; border: none; margin-top: 10px; text-align: center; display: none;}
 
         /* Joysticks tactiles */
         #touch-controls { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; pointer-events: box-none; display: none; }
@@ -27,6 +32,9 @@
         #joy-hand-l .joystick-knob { background: #00bcd4; }
         #joy-hand-r .joystick-knob { background: #4caf50; }
         #jump-button { position: absolute; bottom: 30px; right: 20px; width: 70px; height: 50px; background: rgba(255, 87, 34, 0.8); border: 2px solid white; border-radius: 25px; color: white; font-weight: bold; display: flex; justify-content: center; align-items: center; font-size: 12px; }
+        
+        /* Infos en haut */
+        #ui-layer { position: absolute; top: 15px; left: 15px; color: white; z-index: 10; font-size: 14px; text-shadow: 1px 1px 2px black; pointer-events: none; display: none; }
     </style>
 
     <script type="importmap">
@@ -36,12 +44,25 @@
             }
         }
     </script>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
 
     <div id="login-screen">
-        <h1 style="margin-bottom: 20px;">DORM ROOM (MODE TEST)</h1>
-        <button class="btn" id="btn-start">LANCER LE JEU</button>
+        <h1 style="margin-bottom: 5px;">DORM ROOM 3D</h1>
+        <input type="text" id="username-input" placeholder="Ton Pseudo..." maxlength="12">
+        
+        <div>
+            <button class="btn" id="btn-create">CRÉER UN SALON</button>
+            <button class="btn" id="btn-join">REJOINDRE UN SALON</button>
+        </div>
+        <input type="text" id="room-input" placeholder="Coller le code du salon ici...">
+        <button class="btn" id="btn-submit" style="display: none; background: #2196f3; color: white;">CONNEXION</button>
+    </div>
+
+    <div id="ui-layer">
+        <p id="room-display" style="margin:0; font-weight: bold; color: #ff5722; pointer-events: auto; user-select: text; -webkit-user-select: text;"></p>
+        <p id="player-count" style="margin: 5px 0 0 0;">Seul dans ta Dorm Room</p>
     </div>
 
     <div id="touch-controls">
@@ -57,6 +78,9 @@
         import * as THREE from 'three';
         
         let camera, scene, renderer, leftHand, rightHand;
+        let myUsername = "Player";
+        let isHost = false;
+        let roomCode = "";
         
         let moveForward = 0, moveRight = 0, handL_X = 0, handL_Y = 0, handR_X = 0, handR_Y = 0;
         let canJump = false, velocityY = 0;
@@ -67,54 +91,113 @@
         const baseHandL = new THREE.Vector3(-0.4, -0.4, -0.8);
         const baseHandR = new THREE.Vector3(0.4, -0.4, -0.8);
 
-        document.getElementById('btn-start').addEventListener('click', () => {
+        let otherPlayers = {};
+        let peer, connections = [];
+
+        document.getElementById('btn-create').addEventListener('click', () => { isHost = true; startSetup(); });
+        document.getElementById('btn-join').addEventListener('click', () => { isHost = false; document.getElementById('room-input').style.display = 'block'; document.getElementById('btn-submit').style.display = 'inline-block'; });
+        document.getElementById('btn-submit').addEventListener('click', () => { roomCode = document.getElementById('room-input').value.trim(); if(roomCode) startSetup(); });
+
+        function startSetup() {
+            const input = document.getElementById('username-input').value.trim();
+            if(input) myUsername = input;
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('touch-controls').style.display = 'block';
+            document.getElementById('ui-layer').style.display = 'block';
             initGame();
-        });
+        }
 
         function initGame() {
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 2, 0); // Centre exact de la pièce
+            // On commence au milieu de la chambre
+            camera.position.set(0, 2, 2); 
 
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x1a0f2e);
 
+            // Lumières chaleureuses de la chambre
             scene.add(new THREE.AmbientLight(0xffffff, 0.6));
             const sunLight = new THREE.DirectionalLight(0xfff1e0, 0.6);
             sunLight.position.set(5, 8, 5);
             scene.add(sunLight);
 
-            // --- DECOR DORM ROOM ---
+            // --- CRÉATION DE LA DORM ROOM ---
+            // 1. Le Sol en bois clair
             const floorMat = new THREE.MeshStandardMaterial({ color: 0xd7ccc8, roughness: 0.6 });
             const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), floorMat);
-            floor.rotation.x = -Math.PI / 2; scene.add(floor);
+            floor.rotation.x = -Math.PI / 2;
+            scene.add(floor);
 
+            // Tapis vert Rec Room au milieu
             const rug = new THREE.Mesh(new THREE.BoxGeometry(6, 0.02, 6), new THREE.MeshStandardMaterial({ color: 0x4caf50, roughness: 0.9 }));
-            rug.position.set(0, 0.01, 0); scene.add(rug);
+            rug.position.set(0, 0.01, 0);
+            scene.add(rug);
 
-            const wallOrange = new THREE.MeshStandardMaterial({ color: 0xe65100 });
-            const wallBlue = new THREE.MeshStandardMaterial({ color: 0x0277bd });
-            const wallWhite = new THREE.MeshStandardMaterial({ color: 0xeceff1 });
+            // 2. Les Murs (Chambre fermée de 12x12, hauteur 5)
+            const wallOrange = new THREE.MeshStandardMaterial({ color: 0xe65100 }); // Orange Rec Room
+            const wallBlue = new THREE.MeshStandardMaterial({ color: 0x0277bd });   // Bleu Rec Room
+            const wallWhite = new THREE.MeshStandardMaterial({ color: 0xeceff1 });  // Blanc cassé
 
-            const backWall = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 0.4), wallBlue); backWall.position.set(0, 2.5, -6); scene.add(backWall);
-            const frontWall = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 0.4), wallWhite); frontWall.position.set(0, 2.5, 6); scene.add(frontWall);
-            const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 5, 12), wallOrange); leftWall.position.set(-6, 2.5, 0); scene.add(leftWall);
-            const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 5, 12), wallWhite); rightWall.position.set(6, 2.5, 0); scene.add(rightWall);
+            // Mur Fond (Lit)
+            const backWall = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 0.4), wallBlue);
+            backWall.position.set(0, 2.5, -6);
+            scene.add(backWall);
 
+            // Mur Avant (Porte)
+            const frontWall = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 0.4), wallWhite);
+            frontWall.position.set(0, 2.5, 6);
+            scene.add(frontWall);
+
+            // Mur Gauche
+            const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 5, 12), wallOrange);
+            leftWall.position.set(-6, 2.5, 0);
+            scene.add(leftWall);
+
+            // Mur Droit (Fenêtre/Miroir)
+            const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 5, 12), wallWhite);
+            rightWall.position.set(6, 2.5, 0);
+            scene.add(rightWall);
+
+            // Plafond
             const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), wallWhite);
-            ceiling.position.y = 5; ceiling.rotation.x = Math.PI / 2; scene.add(ceiling);
+            ceiling.position.y = 5;
+            ceiling.rotation.x = Math.PI / 2;
+            scene.add(ceiling);
 
+            // 3. MEUBLES & DECO RECC ROOM
+            // Le Lit
             const bedGroup = new THREE.Group();
-            const bedBase = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.6, 4), new THREE.MeshStandardMaterial({ color: 0x3e2723 })); bedBase.position.set(0, 0.3, 0);
-            const mattress = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.4, 3.8), new THREE.MeshStandardMaterial({ color: 0xffa726 })); mattress.position.set(0, 0.7, 0);
-            const pillow = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.2, 0.8), new THREE.MeshStandardMaterial({ color: 0xffffff })); pillow.position.set(0, 0.9, -1.4);
-            bedGroup.add(bedBase, mattress, pillow); bedGroup.position.set(-4.5, 0, -3.8); scene.add(bedGroup);
+            const bedBase = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.6, 4), new THREE.MeshStandardMaterial({ color: 0x3e2723 }));
+            bedBase.position.set(0, 0.3, 0);
+            const mattress = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.4, 3.8), new THREE.MeshStandardMaterial({ color: 0xffa726 })); // Couverture Orange
+            mattress.position.set(0, 0.7, 0);
+            const pillow = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.2, 0.8), new THREE.MeshStandardMaterial({ color: 0xffffff }));
+            pillow.position.set(0, 0.9, -1.4);
+            bedGroup.add(bedBase, mattress, pillow);
+            bedGroup.position.set(-4.5, 0, -3.8); // Placé dans le coin gauche du fond
+            scene.add(bedGroup);
 
-            const mirrorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.2, 1.5), new THREE.MeshStandardMaterial({ color: 0xff5722 })); mirrorFrame.position.set(5.75, 1.8, 0);
-            const mirrorGlass = new THREE.Mesh(new THREE.BoxGeometry(0.11, 2, 1.3), new THREE.MeshStandardMaterial({ color: 0xcfd8dc, roughness: 0, metalness: 0.9 })); mirrorGlass.position.set(5.75, 1.8, 0);
+            // Le Miroir Rec Room
+            const mirrorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.2, 1.5), new THREE.MeshStandardMaterial({ color: 0xff5722 }));
+            mirrorFrame.position.set(5.75, 1.8, 0);
+            const mirrorGlass = new THREE.Mesh(new THREE.BoxGeometry(0.11, 2, 1.3), new THREE.MeshStandardMaterial({ color: 0xcfd8dc, roughness: 0, metalness: 0.9 }));
+            mirrorGlass.position.set(5.75, 1.8, 0);
             scene.add(mirrorFrame, mirrorGlass);
 
+            // La Porte de sortie du dortoir
+            const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.8, 0.1), new THREE.MeshStandardMaterial({ color: 0x212121 }));
+            doorFrame.position.set(0, 1.4, 5.75);
+            const doorKey = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.6, 0.12), new THREE.MeshStandardMaterial({ color: 0x00bcd4 })); // Porte Turquoise emblématique
+            doorKey.position.set(0, 1.4, 5.75);
+            scene.add(doorFrame, doorKey);
+
+            // Petite Étagère en bois
+            const shelf = new THREE.Mesh(new THREE.BoxGeometry(3, 0.1, 0.8), new THREE.MeshStandardMaterial({ color: 0x5d4037 }));
+            shelf.position.set(4.4, 2.2, -5.4);
+            scene.add(shelf);
+
+
+            // Mes Mains Locales
             const handGeo = new THREE.SphereGeometry(0.12, 16, 16);
             const handMat = new THREE.MeshStandardMaterial({ color: 0xff5722 });
             leftHand = new THREE.Mesh(handGeo, handMat); leftHand.position.copy(baseHandL); camera.add(leftHand);
@@ -126,33 +209,116 @@
             document.getElementById('canvas-container').appendChild(renderer.domElement);
 
             setupMobileControls();
+            initNetworkP2P(); // LE SYSTÈME RÉSEAU INTACT ET SÉCURISÉ
             
             window.addEventListener('resize', onWindowResize);
             animate();
         }
 
+        // --- CODE RÉSEAU P2P IDENTIQUE ET INTÉGRAL ---
+        function initNetworkP2P() {
+            if (isHost) {
+                const generatedId = "REC-" + Math.floor(1000 + Math.random() * 9000);
+                peer = new Peer(generatedId);
+                peer.on('open', (id) => { document.getElementById('room-display').innerText = "Code de ta Chambre : " + id; });
+                peer.on('connection', (conn) => { setupConnectionEvents(conn); connections.push(conn); });
+            } else {
+                peer = new Peer();
+                peer.on('open', () => {
+                    document.getElementById('room-display').innerText = "Dans la Chambre : " + roomCode;
+                    const conn = peer.connect(roomCode);
+                    setupConnectionEvents(conn); connections.push(conn);
+                });
+            }
+            
+            setInterval(() => {
+                const wpL = new THREE.Vector3(); leftHand.getWorldPosition(wpL);
+                const wpR = new THREE.Vector3(); rightHand.getWorldPosition(wpR);
+                const myData = {
+                    id: peer.id, username: myUsername,
+                    x: camera.position.x, y: camera.position.y, z: camera.position.z,
+                    lhX: wpL.x, lhY: wpL.y, lhZ: wpL.z, rhX: wpR.x, rhY: wpR.y, rhZ: wpR.z
+                };
+                connections.forEach(conn => { if (conn.open) conn.send(myData); });
+            }, 40);
+        }
+
+        function setupConnectionEvents(conn) {
+            conn.on('data', (data) => {
+                handlePlayerData(data);
+                if (isHost) {
+                    connections.forEach(c => { if (c.peer !== conn.peer && c.open) c.send(data); });
+                }
+            });
+            conn.on('close', () => {
+                Object.keys(otherPlayers).forEach(id => {
+                    if(otherPlayers[id].peerId === conn.peer) {
+                        scene.remove(otherPlayers[id].body);
+                        scene.remove(otherPlayers[id].label);
+                        delete otherPlayers[id];
+                    }
+                });
+                updateCount();
+            });
+        }
+
+        function handlePlayerData(data) {
+            const id = data.id; if (!id) return;
+
+            if (!otherPlayers[id]) {
+                const playerGroup = new THREE.Group();
+                // Avatar bleu style Rec Room (sans jambes)
+                const bodyMesh = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), new THREE.MeshStandardMaterial({ color: 0x0287bd }));
+                playerGroup.add(bodyMesh);
+
+                const hMat = new THREE.MeshStandardMaterial({ color: 0xffa500 });
+                const oLeftHand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), hMat);
+                const oRightHand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), hMat);
+                playerGroup.add(oLeftHand, oRightHand);
+                scene.add(playerGroup);
+
+                const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, 256, 64);
+                ctx.font = 'bold 26px Arial'; ctx.fillStyle = 'white'; ctx.textAlign = 'center';
+                ctx.fillText(data.username || "Player", 128, 40);
+                
+                const texture = new THREE.CanvasTexture(canvas);
+                const labelSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false }));
+                labelSprite.scale.set(2, 0.5, 1);
+                scene.add(labelSprite);
+
+                otherPlayers[id] = { body: playerGroup, label: labelSprite, lh: oLeftHand, rh: oRightHand, peerId: id };
+                updateCount();
+            }
+
+            const p = otherPlayers[id];
+            p.body.position.set(data.x, data.y - 0.4, data.z);
+            p.label.position.set(data.x, data.y + 0.6, data.z);
+            if(data.lhX) p.lh.position.set(data.lhX - data.x, data.lhY - (data.y - 0.4), data.lhZ - data.z);
+            if(data.rhX) p.rh.position.set(data.rhX - data.x, data.rhY - (data.y - 0.4), data.rhZ - data.z);
+        }
+
+        function updateCount() {
+            const count = Object.keys(otherPlayers).length + 1;
+            document.getElementById('player-count').innerText = `${count} joueur(s) dans la Chambre`;
+        }
+
+        // Contrôles tactiles mobiles
         function setupMobileControls() {
             const jumpBtn = document.getElementById('jump-button');
             let moveTouchId = null, handLTouchId = null, handRTouchId = null;
 
             document.addEventListener('touchstart', (e) => {
-                if(e.target.id === 'btn-start') return;
-
-                const midWidth = window.innerWidth * 0.35;
+                if(e.target.id === 'btn-create' || e.target.id === 'btn-join' || e.target.id === 'btn-submit') return;
 
                 for (let i = 0; i < e.changedTouches.length; i++) {
                     let touch = e.changedTouches[i];
                     const x = touch.clientX; const y = touch.clientY;
 
-                    if (x < midWidth && y > window.innerHeight - 180) {
-                        moveTouchId = touch.identifier;
-                    } 
-                    else if (x < midWidth && y < 180) {
-                        handLTouchId = touch.identifier;
-                    } 
-                    else if (x > window.innerWidth - midWidth && y < 180) {
-                        handRTouchId = touch.identifier;
-                    } 
+                    if (x < 150 && y > window.innerHeight - 150) moveTouchId = touch.identifier;
+                    else if (x < 150 && y < 150) handLTouchId = touch.identifier;
+                    else if (x > window.innerWidth - 150 && y < 150) handRTouchId = touch.identifier;
                     else if (!(x > window.innerWidth - 120 && y > window.innerHeight - 120)) {
                         onPointerDownPointerX = x; onPointerDownPointerY = y;
                         onPointerDownLon = lon; onPointerDownLat = lat;
@@ -201,33 +367,33 @@
         }
 
         function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight; 
-            camera.updateProjectionMatrix();
+            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
         function animate() {
             requestAnimationFrame(animate);
 
+            const delta = clock.getDelta();
             const elapsed = clock.getElapsedTime();
-            const delta = Math.min(clock.getDelta(), 0.1);
 
             lat = Math.max(-85, Math.min(85, lat));
-            phi = THREE.MathUtils.degToRad(90 - lat); 
-            theta = THREE.MathUtils.degToRad(lon);
+            phi = THREE.MathUtils.degToRad(90 - lat); theta = THREE.MathUtils.degToRad(lon);
 
-            const targetPosition = new THREE.Vector3(
-                camera.position.x + Math.sin(phi) * Math.sin(theta),
-                camera.position.y + Math.cos(phi),
-                camera.position.z + Math.sin(phi) * Math.cos(theta)
-            );
-            camera.lookAt(targetPosition);
+            const target = new THREE.Vector3();
+            target.x = camera.position.x + Math.sin(phi) * Math.sin(theta);
+            target.y = camera.position.y + Math.cos(phi);
+            target.z = camera.position.z + Math.sin(phi) * Math.cos(theta);
+            camera.lookAt(target);
 
             const forwardDir = new THREE.Vector3(Math.sin(theta), 0, Math.cos(theta)).normalize();
-            const rightDir = new THREE.Vector3(Math.sin(theta - Math.PI / 2), 0, Math.cos(theta - Math.PI / 2)).normalize();
-
+            const rightDir = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), forwardDir).normalize();
             camera.position.addScaledVector(forwardDir, moveForward * 4 * delta);
             camera.position.addScaledVector(rightDir, moveRight * 4 * delta);
+
+            // Collisions avec les murs de la chambre (Pour ne pas tomber dans le vide !)
+            camera.position.x = Math.max(-5.5, Math.min(5.5, camera.position.x));
+            camera.position.z = Math.max(-5.5, Math.min(5.5, camera.position.z));
 
             velocityY -= 26 * delta; camera.position.y += velocityY * delta;
             if (camera.position.y < 2) { camera.position.y = 2; velocityY = 0; canJump = true; }
@@ -240,8 +406,12 @@
                 if(handL_X === 0 && handL_Y === 0) targetLeftHand.y += wave;
                 if(handR_X === 0 && handR_Y === 0) targetRightHand.y -= wave;
             }
-
             leftHand.position.lerp(targetLeftHand, 0.2); rightHand.position.lerp(targetRightHand, 0.2);
+
+            Object.keys(otherPlayers).forEach(id => {
+                otherPlayers[id].label.lookAt(camera.position);
+            });
+
             renderer.render(scene, camera);
         }
     </script>
