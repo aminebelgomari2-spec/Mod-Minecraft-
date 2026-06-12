@@ -50,7 +50,6 @@
 
     <div id="login-screen">
         <h1 style="margin-bottom: 5px;">DORM ROOM 3D</h1>
-        <p style="margin: 0 0 15px 0; font-size: 12px; opacity: 0.8;">Voice Chat Intégré</p>
         <input type="text" id="username-input" placeholder="Ton Pseudo..." maxlength="12">
         
         <div>
@@ -94,7 +93,6 @@
 
         let otherPlayers = {};
         let peer, connections = [];
-        let myLocalAudioStream = null;
 
         document.getElementById('btn-create').addEventListener('click', () => { isHost = true; startSetup(); });
         document.getElementById('btn-join').addEventListener('click', () => { isHost = false; document.getElementById('room-input').style.display = 'block'; document.getElementById('btn-submit').style.display = 'inline-block'; });
@@ -103,27 +101,10 @@
         function startSetup() {
             const input = document.getElementById('username-input').value.trim();
             if(input) myUsername = input;
-            
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('touch-controls').style.display = 'block';
             document.getElementById('ui-layer').style.display = 'block';
-            
-            // ÉTAPE 1 : ON LANCE LE JEU QUOI QU'IL ARRIVE
             initGame();
-
-            // ÉTAPE 2 : DEMANDE DU MICRO EN DOUCEUR (SANS TOUT CASSER)
-            try {
-                navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-                .then(stream => {
-                    myLocalAudioStream = stream;
-                    console.log("Micro connecté !");
-                })
-                .catch(e => {
-                    console.log("Vocal désactivé (micro refusé ou indisponible)");
-                });
-            } catch(err) {
-                console.log("Le navigateur bloque l'accès micro automatique");
-            }
         }
 
         function initGame() {
@@ -138,7 +119,7 @@
             sunLight.position.set(5, 8, 5);
             scene.add(sunLight);
 
-            // --- DORM ROOM ---
+            // --- CRÉATION DE LA DORM ROOM ---
             const floorMat = new THREE.MeshStandardMaterial({ color: 0xd7ccc8, roughness: 0.6 });
             const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), floorMat);
             floor.rotation.x = -Math.PI / 2;
@@ -213,6 +194,7 @@
             setupMobileControls();
             initNetworkP2P();
             
+            window.addEventListener('resize', onWindowResize);
             animate();
         }
 
@@ -221,18 +203,14 @@
                 const generatedId = "REC-" + Math.floor(1000 + Math.random() * 9000);
                 peer = new Peer(generatedId);
                 peer.on('open', (id) => { document.getElementById('room-display').innerText = "Code de ta Chambre : " + id; });
-                
                 peer.on('connection', (conn) => { setupConnectionEvents(conn); connections.push(conn); });
-                peer.on('call', (call) => { if(myLocalAudioStream) { call.answer(myLocalAudioStream); setupVoiceStream(call); } });
             } else {
                 peer = new Peer();
                 peer.on('open', () => {
                     document.getElementById('room-display').innerText = "Dans la Chambre : " + roomCode;
                     const conn = peer.connect(roomCode);
                     setupConnectionEvents(conn); connections.push(conn);
-                    if(myLocalAudioStream) { const call = peer.call(roomCode, myLocalAudioStream); setupVoiceStream(call); }
                 });
-                peer.on('call', (call) => { if(myLocalAudioStream) { call.answer(myLocalAudioStream); setupVoiceStream(call); } });
             }
             
             setInterval(() => {
@@ -248,37 +226,18 @@
             }, 40);
         }
 
-        function setupVoiceStream(call) {
-            call.on('stream', (remoteStream) => {
-                if (document.getElementById(`audio-${call.peer}`)) return;
-                const audio = document.createElement('audio');
-                audio.id = `audio-${call.peer}`; audio.srcObject = remoteStream;
-                audio.autoplay = true; audio.style.display = 'none';
-                document.body.appendChild(audio);
-            });
-        }
-
         function setupConnectionEvents(conn) {
             conn.on('data', (data) => {
                 handlePlayerData(data);
                 if (isHost) {
-                    connections.forEach(c => { 
-                        if (c.peer !== conn.peer && c.open) {
-                            c.send(data);
-                            if(!otherPlayers[data.id]?.called && myLocalAudioStream) {
-                                const call = peer.call(data.id, myLocalAudioStream);
-                                setupVoiceStream(call);
-                                if(otherPlayers[data.id]) otherPlayers[data.id].called = true;
-                            }
-                        } 
-                    });
+                    connections.forEach(c => { if (c.peer !== conn.peer && c.open) c.send(data); });
                 }
             });
             conn.on('close', () => {
                 Object.keys(otherPlayers).forEach(id => {
                     if(otherPlayers[id].peerId === conn.peer) {
-                        scene.remove(otherPlayers[id].body); scene.remove(otherPlayers[id].label);
-                        const audioEl = document.getElementById(`audio-${conn.peer}`); if(audioEl) audioEl.remove();
+                        scene.remove(otherPlayers[id].body);
+                        scene.remove(otherPlayers[id].label);
                         delete otherPlayers[id];
                     }
                 });
@@ -288,33 +247,43 @@
 
         function handlePlayerData(data) {
             const id = data.id; if (!id) return;
+
             if (!otherPlayers[id]) {
                 const playerGroup = new THREE.Group();
                 const bodyMesh = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), new THREE.MeshStandardMaterial({ color: 0x0287bd }));
                 playerGroup.add(bodyMesh);
+
                 const hMat = new THREE.MeshStandardMaterial({ color: 0xffa500 });
                 const oLeftHand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), hMat);
                 const oRightHand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), hMat);
-                playerGroup.add(oLeftHand, oRightHand); scene.add(playerGroup);
+                playerGroup.add(oLeftHand, oRightHand);
+                scene.add(playerGroup);
 
                 const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 64;
-                const ctx = canvas.getContext('2d'); ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, 256, 64);
-                ctx.font = 'bold 26px Arial'; ctx.fillStyle = 'white'; ctx.textAlign = 'center'; ctx.fillText(data.username || "Player", 128, 40);
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, 256, 64);
+                ctx.font = 'bold 26px Arial'; ctx.fillStyle = 'white'; ctx.textAlign = 'center';
+                ctx.fillText(data.username || "Player", 128, 40);
+                
                 const texture = new THREE.CanvasTexture(canvas);
                 const labelSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false }));
-                labelSprite.scale.set(2, 0.5, 1); scene.add(labelSprite);
+                labelSprite.scale.set(2, 0.5, 1);
+                scene.add(labelSprite);
 
-                otherPlayers[id] = { body: playerGroup, label: labelSprite, lh: oLeftHand, rh: oRightHand, peerId: id, called: false };
+                otherPlayers[id] = { body: playerGroup, label: labelSprite, lh: oLeftHand, rh: oRightHand, peerId: id };
                 updateCount();
             }
+
             const p = otherPlayers[id];
-            p.body.position.set(data.x, data.y - 0.4, data.z); p.label.position.set(data.x, data.y + 0.6, data.z);
+            p.body.position.set(data.x, data.y - 0.4, data.z);
+            p.label.position.set(data.x, data.y + 0.6, data.z);
             if(data.lhX) p.lh.position.set(data.lhX - data.x, data.lhY - (data.y - 0.4), data.lhZ - data.z);
             if(data.rhX) p.rh.position.set(data.rhX - data.x, data.rhY - (data.y - 0.4), data.rhZ - data.z);
         }
 
         function updateCount() {
-            document.getElementById('player-count').innerText = `${Object.keys(otherPlayers).length + 1} joueur(s) dans la Chambre`;
+            const count = Object.keys(otherPlayers).length + 1;
+            document.getElementById('player-count').innerText = `${count} joueur(s) dans la Chambre`;
         }
 
         function setupMobileControls() {
@@ -323,16 +292,20 @@
 
             document.addEventListener('touchstart', (e) => {
                 if(e.target.id === 'btn-create' || e.target.id === 'btn-join' || e.target.id === 'btn-submit') return;
+
                 for (let i = 0; i < e.changedTouches.length; i++) {
-                    let touch = e.changedTouches[i]; const x = touch.clientX; const y = touch.clientY;
+                    let touch = e.changedTouches[i];
+                    const x = touch.clientX; const y = touch.clientY;
+
                     if (x < 150 && y > window.innerHeight - 150) moveTouchId = touch.identifier;
                     else if (x < 150 && y < 150) handLTouchId = touch.identifier;
                     else if (x > window.innerWidth - 150 && y < 150) handRTouchId = touch.identifier;
                     else if (!(x > window.innerWidth - 120 && y > window.innerHeight - 120)) {
-                        onPointerDownPointerX = x; onPointerDownPointerY = y; onPointerDownLon = lon; onPointerDownLat = lat;
+                        onPointerDownPointerX = x; onPointerDownPointerY = y;
+                        onPointerDownLon = lon; onPointerDownLat = lat;
                     }
                 }
-            }, { passive: true });
+            });
 
             document.addEventListener('touchmove', (e) => {
                 for (let i = 0; i < e.changedTouches.length; i++) {
@@ -350,7 +323,7 @@
                         }
                     }
                 }
-            }, { passive: true });
+            });
 
             document.addEventListener('touchend', (e) => {
                 for (let i = 0; i < e.changedTouches.length; i++) {
@@ -359,9 +332,70 @@
                     else if (touch.identifier === handLTouchId) { handLTouchId = null; resetJoystick('knob-hand-l'); handL_X = 0; handL_Y = 0; }
                     else if (touch.identifier === handRTouchId) { handRTouchId = null; resetJoystick('knob-hand-r'); handR_X = 0; handR_Y = 0; }
                 }
-            }, { passive: true });
+            });
 
             function updateJoystick(baseId, knobId, touch, callback) {
                 const base = document.getElementById(baseId); const knob = document.getElementById(knobId);
                 const rect = base.getBoundingClientRect();
-                const kx = Math.max(-35, Math.
+                const kx = Math.max(-35, Math.min(35, touch.clientX - (rect.left + 42)));
+                const ky = Math.max(-35, Math.min(35, touch.clientY - (rect.top + 42)));
+                knob.style.transform = `translate(${kx}px, ${ky}px)`;
+                callback(kx / 35, ky / 35);
+            }
+            function resetJoystick(knobId) { document.getElementById(knobId).style.transform = 'translate(0px, 0px)'; }
+
+            jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (canJump) { velocityY = 11; canJump = false; } });
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight; 
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const elapsed = clock.getElapsedTime();
+            const delta = Math.min(clock.getDelta(), 0.1);
+
+            lat = Math.max(-85, Math.min(85, lat));
+            phi = THREE.MathUtils.degToRad(90 - lat);
+            theta = THREE.MathUtils.degToRad(lon);
+
+            const targetPosition = new THREE.Vector3(
+                camera.position.x + Math.sin(phi) * Math.sin(theta),
+                camera.position.y + Math.cos(phi),
+                camera.position.z + Math.sin(phi) * Math.cos(theta)
+            );
+            camera.lookAt(targetPosition);
+
+            const forwardDir = new THREE.Vector3(Math.sin(theta), 0, Math.cos(theta)).normalize();
+            const rightDir = new THREE.Vector3(Math.sin(theta - Math.PI / 2), 0, Math.cos(theta - Math.PI / 2)).normalize();
+
+            camera.position.addScaledVector(forwardDir, moveForward * 4 * delta);
+            camera.position.addScaledVector(rightDir, moveRight * 4 * delta);
+
+            camera.position.x = Math.max(-5.5, Math.min(5.5, camera.position.x));
+            camera.position.z = Math.max(-5.5, Math.min(5.5, camera.position.z));
+
+            velocityY -= 26 * delta; camera.position.y += velocityY * delta;
+            if (camera.position.y < 2) { camera.position.y = 2; velocityY = 0; canJump = true; }
+
+            const targetLeftHand = new THREE.Vector3(baseHandL.x + handL_X * 0.5, baseHandL.y + handL_Y * 0.5, baseHandL.z + (handL_Y !== 0 ? -Math.abs(handL_Y)*0.2 : 0));
+            const targetRightHand = new THREE.Vector3(baseHandR.x + handR_X * 0.5, baseHandR.y + handR_Y * 0.5, baseHandR.z + (handR_Y !== 0 ? -Math.abs(handR_Y)*0.2 : 0));
+            
+            if (moveForward !== 0 || moveRight !== 0) {
+                const wave = Math.sin(elapsed * 6) * 0.03;
+                if(handL_X === 0 && handL_Y === 0) targetLeftHand.y += wave;
+                if(handR_X === 0 && handR_Y === 0) targetRightHand.y -= wave;
+            }
+
+            leftHand.position.lerp(targetLeftHand, 0.2);
+            rightHand.position.lerp(targetRightHand, 0.2);
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
