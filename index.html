@@ -21,19 +21,20 @@
         .btn { padding: 12px 25px; font-size: 16px; background: white; color: #ff5722; border: none; border-radius: 25px; font-weight: bold; cursor: pointer; margin: 5px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
         #room-input { padding: 10px; border-radius: 10px; border: none; margin-top: 10px; text-align: center; display: none;}
 
-        /* Joysticks tactiles */
-        #touch-controls { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; pointer-events: box-none; display: none; }
-        .joystick-base { position: absolute; width: 90px; height: 90px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 50%; display: flex; justify-content: center; align-items: center; }
-        .joystick-knob { width: 40px; height: 40px; border-radius: 50%; position: absolute; transition: transform 0.05s linear; }
-        #joy-move { bottom: 30px; left: 30px; }
-        #joy-hand-l { top: 30px; left: 30px; }
-        #joy-hand-r { top: 30px; right: 30px; }
-        #joy-move .joystick-knob { background: #ff5722; }
-        #joy-hand-l .joystick-knob { background: #00bcd4; }
-        #joy-hand-r .joystick-knob { background: #4caf50; }
-        #jump-button { position: absolute; bottom: 40px; right: 30px; width: 80px; height: 55px; background: rgba(255, 87, 34, 0.9); border: 2px solid white; border-radius: 25px; color: white; font-weight: bold; display: flex; justify-content: center; align-items: center; font-size: 14px; }
+        /* NOUVEAU SYSTÈME DE BOUTONS PAD DIRECTIONNEL */
+        #touch-controls { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; pointer-events: none; display: none; }
         
-        /* Infos en haut */
+        .pad-container { position: absolute; bottom: 30px; left: 30px; width: 160px; height: 160px; pointer-events: auto; }
+        .pad-btn { position: absolute; width: 50px; height: 50px; background: rgba(255, 87, 34, 0.75); border: 2px solid white; border-radius: 12px; color: white; font-weight: bold; display: flex; justify-content: center; align-items: center; font-size: 20px; active-background: #ff5722; }
+        #btn-up { top: 0; left: 55px; }
+        #btn-down { bottom: 0; left: 55px; }
+        #btn-left { top: 55px; left: 0; }
+        #btn-right { top: 55px; right: 0; }
+
+        /* Bouton de saut à droite */
+        #jump-button { position: absolute; bottom: 45px; right: 30px; width: 75px; height: 75px; background: rgba(33, 150, 243, 0.8); border: 2px solid white; border-radius: 50%; color: white; font-weight: bold; display: flex; justify-content: center; align-items: center; font-size: 14px; pointer-events: auto; }
+        
+        /* Infos de l'interface */
         #ui-layer { position: absolute; top: 15px; left: 15px; color: white; z-index: 10; font-size: 14px; text-shadow: 1px 1px 2px black; pointer-events: none; display: none; }
     </style>
 
@@ -67,9 +68,12 @@
     </div>
 
     <div id="touch-controls">
-        <div class="joystick-base" id="joy-move"><div class="joystick-knob" id="knob-move"></div></div>
-        <div class="joystick-base" id="joy-hand-l"><div class="joystick-knob" id="knob-hand-l"></div></div>
-        <div class="joystick-base" id="joy-hand-r"><div class="joystick-knob" id="knob-hand-r"></div></div>
+        <div class="pad-container">
+            <div class="pad-btn" id="btn-up">▲</div>
+            <div class="pad-btn" id="btn-left">◀</div>
+            <div class="pad-btn" id="btn-right">▶</div>
+            <div class="pad-btn" id="btn-down">▼</div>
+        </div>
         <div id="jump-button">SAUT</div>
     </div>
 
@@ -83,7 +87,8 @@
         let isHost = false;
         let roomCode = "";
         
-        let moveForward = 0, moveRight = 0, handL_X = 0, handL_Y = 0, handR_X = 0, handR_Y = 0;
+        // États de mouvement simples
+        let moveForward = 0, moveRight = 0;
         let canJump = false, velocityY = 0;
         let lon = -90, lat = 0, phi = 0, theta = 0;
         let onPointerDownPointerX = 0, onPointerDownPointerY = 0, onPointerDownLon = 0, onPointerDownLat = 0;
@@ -108,15 +113,9 @@
             document.getElementById('ui-layer').style.display = 'block';
             
             navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-                .then(stream => {
-                    myLocalAudioStream = stream;
-                })
-                .catch(err => {
-                    console.log("Audio non dispo :", err);
-                })
-                .finally(() => {
-                    initGame();
-                });
+                .then(stream => { myLocalAudioStream = stream; })
+                .catch(err => { console.log("Audio non dispo :", err); })
+                .finally(() => { initGame(); });
         }
 
         function initGame() {
@@ -125,8 +124,8 @@
 
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x1a0f2e);
-
             scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+            
             const sunLight = new THREE.DirectionalLight(0xfff1e0, 0.6);
             sunLight.position.set(5, 8, 5);
             scene.add(sunLight);
@@ -146,52 +145,26 @@
             const wallWhite = new THREE.MeshStandardMaterial({ color: 0xeceff1 });
 
             const backWall = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 0.4), wallBlue);
-            backWall.position.set(0, 2.5, -6);
-            scene.add(backWall);
+            backWall.position.set(0, 2.5, -6); scene.add(backWall);
 
             const frontWall = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 0.4), wallWhite);
-            frontWall.position.set(0, 2.5, 6);
-            scene.add(frontWall);
+            frontWall.position.set(0, 2.5, 6); scene.add(frontWall);
 
             const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 5, 12), wallOrange);
-            leftWall.position.set(-6, 2.5, 0);
-            scene.add(leftWall);
+            leftWall.position.set(-6, 2.5, 0); scene.add(leftWall);
 
             const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 5, 12), wallWhite);
-            rightWall.position.set(6, 2.5, 0);
-            scene.add(rightWall);
+            rightWall.position.set(6, 2.5, 0); scene.add(rightWall);
 
             const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), wallWhite);
-            ceiling.position.y = 5;
-            ceiling.rotation.x = Math.PI / 2;
-            scene.add(ceiling);
+            ceiling.position.y = 5; ceiling.rotation.x = Math.PI / 2; scene.add(ceiling);
 
+            // Lit
             const bedGroup = new THREE.Group();
-            const bedBase = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.6, 4), new THREE.MeshStandardMaterial({ color: 0x3e2723 }));
-            bedBase.position.set(0, 0.3, 0);
-            const mattress = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.4, 3.8), new THREE.MeshStandardMaterial({ color: 0xffa726 }));
-            mattress.position.set(0, 0.7, 0);
-            const pillow = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.2, 0.8), new THREE.MeshStandardMaterial({ color: 0xffffff }));
-            pillow.position.set(0, 0.9, -1.4);
-            bedGroup.add(bedBase, mattress, pillow);
-            bedGroup.position.set(-4.5, 0, -3.8);
-            scene.add(bedGroup);
-
-            const mirrorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.2, 1.5), new THREE.MeshStandardMaterial({ color: 0xff5722 }));
-            mirrorFrame.position.set(5.75, 1.8, 0);
-            const mirrorGlass = new THREE.Mesh(new THREE.BoxGeometry(0.11, 2, 1.3), new THREE.MeshStandardMaterial({ color: 0xcfd8dc, roughness: 0, metalness: 0.9 }));
-            mirrorGlass.position.set(5.75, 1.8, 0);
-            scene.add(mirrorFrame, mirrorGlass);
-
-            const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.8, 0.1), new THREE.MeshStandardMaterial({ color: 0x212121 }));
-            doorFrame.position.set(0, 1.4, 5.75);
-            const doorKey = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.6, 0.12), new THREE.MeshStandardMaterial({ color: 0x00bcd4 }));
-            doorKey.position.set(0, 1.4, 5.75);
-            scene.add(doorFrame, doorKey);
-
-            const shelf = new THREE.Mesh(new THREE.BoxGeometry(3, 0.1, 0.8), new THREE.MeshStandardMaterial({ color: 0x5d4037 }));
-            shelf.position.set(4.4, 2.2, -5.4);
-            scene.add(shelf);
+            const bedBase = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.6, 4), new THREE.MeshStandardMaterial({ color: 0x3e2723 })); bedBase.position.set(0, 0.3, 0);
+            const mattress = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.4, 3.8), new THREE.MeshStandardMaterial({ color: 0xffa726 })); mattress.position.set(0, 0.7, 0);
+            const pillow = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.2, 0.8), new THREE.MeshStandardMaterial({ color: 0xffffff })); pillow.position.set(0, 0.9, -1.4);
+            bedGroup.add(bedBase, mattress, pillow); bedGroup.position.set(-4.5, 0, -3.8); scene.add(bedGroup);
 
             const handGeo = new THREE.SphereGeometry(0.12, 16, 16);
             const handMat = new THREE.MeshStandardMaterial({ color: 0xff5722 });
@@ -203,7 +176,7 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-            setupMobileControls();
+            setupButtonControls();
             initNetworkP2P();
             
             window.addEventListener('resize', onWindowResize);
@@ -216,7 +189,6 @@
                 peer = new Peer(generatedId);
                 peer.on('open', (id) => { document.getElementById('room-display').innerText = "Code de ta Chambre : " + id; });
                 peer.on('connection', (conn) => { setupConnectionEvents(conn); connections.push(conn); });
-                
                 peer.on('call', (call) => { if (myLocalAudioStream) call.answer(myLocalAudioStream); handleVoiceStream(call); });
             } else {
                 peer = new Peer();
@@ -309,84 +281,44 @@
             document.getElementById('player-count').innerText = `${Object.keys(otherPlayers).length + 1} joueur(s) dans la Chambre`;
         }
 
-        function setupMobileControls() {
+        // --- NOUVELLE TECHNIQUE : DETECTION DES BOUTONS DIRECTIONNELS SANS BUG ---
+        function setupButtonControls() {
+            const up = document.getElementById('btn-up');
+            const down = document.getElementById('btn-down');
+            const left = document.getElementById('btn-left');
+            const right = document.getElementById('btn-right');
             const jumpBtn = document.getElementById('jump-button');
-            
-            // Origine des touchés pour calculer la distance réelle du glissement
-            let moveStart = { x: 0, y: 0 }, handLStart = { x: 0, y: 0 }, handRStart = { x: 0, y: 0 };
-            let moveTouchId = null, handLTouchId = null, handRTouchId = null;
 
+            // Événements boutons directionnels (Touch & Souris au cas où)
+            const bindBtn = (el, pressCallback, releaseCallback) => {
+                el.addEventListener('touchstart', (e) => { e.preventDefault(); pressCallback(); }, { passive: false });
+                el.addEventListener('touchend', (e) => { e.preventDefault(); releaseCallback(); }, { passive: false });
+                el.addEventListener('mousedown', () => pressCallback());
+                el.addEventListener('mouseup', () => releaseCallback());
+            };
+
+            bindBtn(up, () => moveForward = 1, () => moveForward = (moveForward == 1 ? 0 : moveForward));
+            bindBtn(down, () => moveForward = -1, () => moveForward = (moveForward == -1 ? 0 : moveForward));
+            bindBtn(left, () => moveRight = -1, () => moveRight = (moveRight == -1 ? 0 : moveRight));
+            bindBtn(right, () => moveRight = 1, () => moveRight = (moveRight == 1 ? 0 : moveRight));
+
+            jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (canJump) { velocityY = 11; canJump = false; } }, { passive: false });
+            jumpBtn.addEventListener('mousedown', () => { if (canJump) { velocityY = 11; canJump = false; } });
+
+            // Mouvement de caméra sur le reste de l'écran vide
             document.addEventListener('touchstart', (e) => {
-                if(e.target.id === 'btn-create' || e.target.id === 'btn-join' || e.target.id === 'btn-submit' || e.target.tagName === 'INPUT') return;
-                
-                for (let i = 0; i < e.changedTouches.length; i++) {
-                    let touch = e.changedTouches[i];
-                    const x = touch.clientX; const y = touch.clientY;
-
-                    // Zone Joystick de déplacement (Bas gauche)
-                    if (x < window.innerWidth * 0.4 && y > window.innerHeight * 0.5) {
-                        moveTouchId = touch.identifier;
-                        moveStart = { x: x, y: y };
-                    } 
-                    // Zone Main Gauche (Haut gauche)
-                    else if (x < window.innerWidth * 0.4 && y <= window.innerHeight * 0.5) {
-                        handLTouchId = touch.identifier;
-                        handLStart = { x: x, y: y };
-                    } 
-                    // Zone Main Droite (Haut droite)
-                    else if (x >= window.innerWidth * 0.4 && y <= window.innerHeight * 0.5) {
-                        handRTouchId = touch.identifier;
-                        handRStart = { x: x, y: y };
-                    } 
-                    // Zone Caméra (Reste de l'écran sauf bouton Saut)
-                    else if (e.target.id !== 'jump-button') {
-                        onPointerDownPointerX = x; onPointerDownPointerY = y;
-                        onPointerDownLon = lon; onPointerDownLat = lat;
-                    }
-                }
-            });
+                if(e.target.closest('.pad-container') || e.target.id === 'jump-button' || e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+                let touch = e.changedTouches[0];
+                onPointerDownPointerX = touch.clientX; onPointerDownPointerY = touch.clientY;
+                onPointerDownLon = lon; onPointerDownLat = lat;
+            }, { passive: true });
 
             document.addEventListener('touchmove', (e) => {
-                for (let i = 0; i < e.changedTouches.length; i++) {
-                    let touch = e.changedTouches[i];
-                    
-                    if (touch.identifier === moveTouchId) {
-                        let dx = touch.clientX - moveStart.x; let dy = touch.clientY - moveStart.y;
-                        let dist = Math.hypot(dx, dy); if(dist > 35) { dx = (dx/dist)*35; dy = (dy/dist)*35; }
-                        document.getElementById('knob-move').style.transform = `translate(${dx}px, ${dy}px)`;
-                        moveRight = dx / 35; moveForward = -(dy / 35);
-                    } 
-                    else if (touch.identifier === handLTouchId) {
-                        let dx = touch.clientX - handLStart.x; let dy = touch.clientY - handLStart.y;
-                        let dist = Math.hypot(dx, dy); if(dist > 35) { dx = (dx/dist)*35; dy = (dy/dist)*35; }
-                        document.getElementById('knob-hand-l').style.transform = `translate(${dx}px, ${dy}px)`;
-                        handL_X = dx / 35; handL_Y = -(dy / 35);
-                    } 
-                    else if (touch.identifier === handRTouchId) {
-                        let dx = touch.clientX - handRStart.x; let dy = touch.clientY - handRStart.y;
-                        let dist = Math.hypot(dx, dy); if(dist > 35) { dx = (dx/dist)*35; dy = (dy/dist)*35; }
-                        document.getElementById('knob-hand-r').style.transform = `translate(${dx}px, ${dy}px)`;
-                        handR_X = dx / 35; handR_Y = -(dy / 35);
-                    } 
-                    else {
-                        if(moveTouchId !== touch.identifier && handLTouchId !== touch.identifier && handRTouchId !== touch.identifier) {
-                            lon = (touch.clientX - onPointerDownPointerX) * 0.25 + onPointerDownLon;
-                            lat = (onPointerDownPointerY - touch.clientY) * 0.25 + onPointerDownLat;
-                        }
-                    }
-                }
-            });
-
-            document.addEventListener('touchend', (e) => {
-                for (let i = 0; i < e.changedTouches.length; i++) {
-                    let touch = e.changedTouches[i];
-                    if (touch.identifier === moveTouchId) { moveTouchId = null; document.getElementById('knob-move').style.transform = 'translate(0,0)'; moveForward = 0; moveRight = 0; }
-                    else if (touch.identifier === handLTouchId) { handLTouchId = null; document.getElementById('knob-hand-l').style.transform = 'translate(0,0)'; handL_X = 0; handL_Y = 0; }
-                    else if (touch.identifier === handRTouchId) { handRTouchId = null; document.getElementById('knob-hand-r').style.transform = 'translate(0,0)'; handR_X = 0; handR_Y = 0; }
-                }
-            });
-
-            jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (canJump) { velocityY = 11; canJump = false; } });
+                if(e.target.closest('.pad-container') || e.target.id === 'jump-button') return;
+                let touch = e.changedTouches[0];
+                lon = (touch.clientX - onPointerDownPointerX) * 0.3 + onPointerDownLon;
+                lat = (onPointerDownPointerY - touch.clientY) * 0.3 + onPointerDownLat;
+            }, { passive: true });
         }
 
         function onWindowResize() {
@@ -408,35 +340,33 @@
             );
             camera.lookAt(targetPosition);
 
-            // --- DEPLACEMENT ROBUSTE PAR PROJECTION DE DIRECTION ---
+            // Calcul du déplacement basé sur l'orientation de l'écran
             const dirX = Math.sin(theta); const dirZ = Math.cos(theta);
             
-            // Direction Avant/Arrière projetée au sol (Axe Y ignoré pour pas s'envoler)
             if (moveForward !== 0) {
                 camera.position.x += dirX * moveForward * 4 * delta;
                 camera.position.z += dirZ * moveForward * 4 * delta;
             }
-            // Direction Latérale (Gauche/Droite) orthogonale à la vue
             if (moveRight !== 0) {
                 camera.position.x += dirZ * moveRight * 4 * delta;
                 camera.position.z -= dirX * moveRight * 4 * delta;
             }
 
-            // Gestion des collisions simples
-            camera.position.x = Math.max(-5.5, Math.min(5.5, camera.position.x));
-            camera.position.z = Math.max(-5.5, Math.min(5.5, camera.position.z));
+            // Collisions strictes Dorm Room
+            camera.position.x = Math.max(-5.4, Math.min(5.4, camera.position.x));
+            camera.position.z = Math.max(-5.4, Math.min(5.4, camera.position.z));
 
-            // Gravité
+            // Gravité physique
             velocityY -= 26 * delta; camera.position.y += velocityY * delta;
             if (camera.position.y < 2) { camera.position.y = 2; velocityY = 0; canJump = true; }
 
-            // Oscillation naturelle des mains
-            const targetLeftHand = new THREE.Vector3(baseHandL.x + handL_X * 0.5, baseHandL.y + handL_Y * 0.5, baseHandL.z + (handL_Y !== 0 ? -Math.abs(handL_Y)*0.2 : 0));
-            const targetRightHand = new THREE.Vector3(baseHandR.x + handR_X * 0.5, baseHandR.y + handR_Y * 0.5, baseHandR.z + (handR_Y !== 0 ? -Math.abs(handR_Y)*0.2 : 0));
+            // Animation automatique et fluide des mains quand on bouge
+            const targetLeftHand = new THREE.Vector3().copy(baseHandL);
+            const targetRightHand = new THREE.Vector3().copy(baseHandR);
             if (moveForward !== 0 || moveRight !== 0) {
-                const wave = Math.sin(elapsed * 6) * 0.03;
-                if(handL_X === 0 && handL_Y === 0) targetLeftHand.y += wave;
-                if(handR_X === 0 && handR_Y === 0) targetRightHand.y -= wave;
+                const wave = Math.sin(elapsed * 8) * 0.05;
+                targetLeftHand.y += wave; targetLeftHand.z += wave * 0.5;
+                targetRightHand.y -= wave; targetRightHand.z -= wave * 0.5;
             }
             leftHand.position.lerp(targetLeftHand, 0.2); rightHand.position.lerp(targetRightHand, 0.2);
 
