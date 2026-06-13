@@ -36,7 +36,7 @@
         /* Infos en haut */
         #ui-layer { position: absolute; top: 15px; left: 15px; color: white; z-index: 10; font-size: 14px; text-shadow: 1px 1px 2px black; pointer-events: none; display: none; }
         
-        /* Interface du Maker Pen (Mode Construction) */
+        /* Interface du Maker Pen */
         #build-ui { position: absolute; top: 15px; right: 15px; z-index: 15; display: none; text-align: right; }
         #btn-toggle-build { background: #9c27b0; color: white; border: 2px solid white; padding: 10px 20px; border-radius: 20px; font-weight: bold; cursor: pointer; }
         #build-menu { margin-top: 10px; background: rgba(0, 0, 0, 0.8); padding: 10px; border-radius: 10px; display: none; border: 1px solid #9c27b0; }
@@ -117,9 +117,9 @@
         // Variables Système de construction
         let isBuildMode = false;
         let selectedObjectType = "cube";
-        let buildableTargets = []; // Objets sur lesquels on peut poser des blocs (sol, murs)
+        let buildableTargets = []; 
         const raycaster = new THREE.Raycaster();
-        const mouseCenter = new THREE.Vector2(0, 0); // Toujours le centre de l'écran
+        const mouseCenter = new THREE.Vector2(0, 0);
 
         document.getElementById('btn-create').addEventListener('click', () => { isHost = true; startSetup(); });
         document.getElementById('btn-join').addEventListener('click', () => { isHost = false; document.getElementById('room-input').style.display = 'block'; document.getElementById('btn-submit').style.display = 'inline-block'; });
@@ -133,11 +133,16 @@
             document.getElementById('ui-layer').style.display = 'block';
             document.getElementById('build-ui').style.display = 'block';
             
-            initGame();
-
+            // On demande le micro d'abord, puis on lance le jeu
             navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-                .then(stream => { myLocalAudioStream = stream; })
-                .catch(err => { console.log("Micro indisponible :", err); });
+                .then(stream => { 
+                    myLocalAudioStream = stream; 
+                    initGame();
+                })
+                .catch(err => { 
+                    console.log("Micro refusé ou absent, lancement sans voix :", err); 
+                    initGame();
+                });
         }
 
         function initGame() {
@@ -157,7 +162,7 @@
             const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), floorMat);
             floor.rotation.x = -Math.PI / 2;
             scene.add(floor);
-            buildableTargets.push(floor); // On peut construire sur le sol
+            buildableTargets.push(floor);
 
             const rug = new THREE.Mesh(new THREE.BoxGeometry(6, 0.02, 6), new THREE.MeshStandardMaterial({ color: 0x4caf50, roughness: 0.9 }));
             rug.position.set(0, 0.01, 0);
@@ -208,7 +213,6 @@
             animate();
         }
 
-        // --- APPARITION & LOGIQUE DES OBJETS CONSTRUITS ---
         function createPlacedObject(type, pos, colorHex) {
             let mesh;
             const mat = new THREE.MeshStandardMaterial({ color: colorHex || 0x9c27b0, roughness: 0.7 });
@@ -234,10 +238,9 @@
             }
 
             scene.add(mesh);
-            buildableTargets.push(mesh); // Permet d'empiler des objets les uns sur les autres !
+            buildableTargets.push(mesh); 
         }
 
-        // Configuration des clics de construction
         function setupBuilderEvents() {
             const toggleBtn = document.getElementById('btn-toggle-build');
             const menu = document.getElementById('build-menu');
@@ -259,7 +262,6 @@
                 }
             });
 
-            // Sélection de l'élément dans le menu
             document.querySelectorAll('.build-item').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -270,28 +272,23 @@
             });
         }
 
-        // Exécuté lors d'un tap au centre de l'écran en mode construction
         function executeBuildSpawn() {
             raycaster.setFromCamera(mouseCenter, camera);
             const intersects = raycaster.intersectObjects(buildableTargets, true);
 
             if (intersects.length > 0) {
                 const hit = intersects[0];
-                // Calcule la position exacte en fonction de la face touchée (évite que l'objet s'enfonce)
                 const spawnPos = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.4));
                 
                 if(selectedObjectType !== "cube") {
-                    spawnPos.y = hit.point.y; // Reste au sol pour les meubles
+                    spawnPos.y = hit.point.y; 
                 }
 
-                // Génère une couleur Rec Room aléatoire pour le fun
                 const colors = [0x9c27b0, 0xe91e63, 0x00bcd4, 0xffeb3b, 0xff5722];
                 const myColor = colors[Math.floor(Math.random() * colors.length)];
 
-                // Création locale
                 createPlacedObject(selectedObjectType, spawnPos, myColor);
 
-                // Envoi de l'objet aux autres joueurs
                 const buildData = {
                     type: "build",
                     objectType: selectedObjectType,
@@ -302,18 +299,20 @@
             }
         }
 
-
-        // --- CODE RÉSEAU SYNCHRONISÉ ---
+        // --- ZONE AUDIO & P2P SÉCURISÉE ---
         function initNetworkP2P() {
             if (isHost) {
                 const generatedId = "REC-" + Math.floor(1000 + Math.random() * 9000);
                 peer = new Peer(generatedId);
                 peer.on('open', (id) => { document.getElementById('room-display').innerText = "Code de ta Chambre : " + id; });
-                peer.on('connection', (conn) => { setupConnectionEvents(conn); connections.push(conn); });
+                
+                peer.on('connection', (conn) => { 
+                    setupConnectionEvents(conn); 
+                    connections.push(conn); 
+                });
                 
                 peer.on('call', (call) => {
-                    if (myLocalAudioStream) call.answer(myLocalAudioStream);
-                    else call.answer();
+                    call.answer(myLocalAudioStream);
                     handleVoiceStream(call);
                 });
             } else {
@@ -321,14 +320,16 @@
                 peer.on('open', () => {
                     document.getElementById('room-display').innerText = "Dans la Chambre : " + roomCode;
                     const conn = peer.connect(roomCode);
-                    setupConnectionEvents(conn); connections.push(conn);
+                    setupConnectionEvents(conn); 
+                    connections.push(conn);
                     
-                    if (myLocalAudioStream) { peer.call(roomCode, myLocalAudioStream); }
+                    if (myLocalAudioStream) { 
+                        peer.call(roomCode, myLocalAudioStream); 
+                    }
                 });
 
                 peer.on('call', (call) => {
-                    if (myLocalAudioStream) call.answer(myLocalAudioStream);
-                    else call.answer();
+                    call.answer(myLocalAudioStream);
                     handleVoiceStream(call);
                 });
             }
@@ -350,17 +351,19 @@
             call.on('stream', (remoteStream) => {
                 if (document.getElementById(`audio-${call.peer}`)) return;
                 const audioEl = document.createElement('audio');
-                audioEl.id = `audio-${call.peer}`; audioEl.srcObject = remoteStream; audioEl.autoplay = true; audioEl.style.display = 'none';
+                audioEl.id = `audio-${call.peer}`; 
+                audioEl.srcObject = remoteStream; 
+                audioEl.autoplay = true; 
+                audioEl.style.display = 'none';
                 document.body.appendChild(audioEl);
             });
         }
 
         function setupConnectionEvents(conn) {
             conn.on('data', (data) => {
-                // Tri entre données de mouvements et de construction
                 if (data.type === "build") {
                     createPlacedObject(data.objectType, new THREE.Vector3(data.x, data.y, data.z), data.color);
-                } else {
+                } else if (data.type === "move") {
                     handlePlayerData(data);
                 }
                 
@@ -368,14 +371,18 @@
                     connections.forEach(c => { 
                         if (c.peer !== conn.peer && c.open) {
                             c.send(data);
-                            if (data.id && otherPlayers[data.id] && !otherPlayers[data.id].called && myLocalAudioStream) {
-                                peer.call(data.id, myLocalAudioStream);
-                                otherPlayers[data.id].called = true;
-                            }
                         } 
                     });
                 }
             });
+
+            // Le Host appelle les invités une seule fois lors de la poignée de main initiale PeerJS
+            if (isHost && myLocalAudioStream) {
+                setTimeout(() => {
+                    peer.call(conn.peer, myLocalAudioStream);
+                }, 800);
+            }
+
             conn.on('close', () => {
                 Object.keys(otherPlayers).forEach(id => {
                     if(otherPlayers[id].peerId === conn.peer) {
@@ -414,7 +421,7 @@
                 labelSprite.scale.set(2, 0.5, 1);
                 scene.add(labelSprite);
 
-                otherPlayers[id] = { body: playerGroup, label: labelSprite, lh: oLeftHand, rh: oRightHand, peerId: id, called: false };
+                otherPlayers[id] = { body: playerGroup, label: labelSprite, lh: oLeftHand, rh: oRightHand, peerId: id };
                 updateCount();
             }
 
@@ -430,7 +437,6 @@
             document.getElementById('player-count').innerText = `${count} joueur(s) dans la Chambre`;
         }
 
-        // Contrôles tactiles mobiles mis à jour pour la construction
         function setupMobileControls() {
             const jumpBtn = document.getElementById('jump-button');
             let moveTouchId = null, handLTouchId = null, handRTouchId = null;
@@ -483,7 +489,6 @@
                     else if (touch.identifier === handLTouchId) { handLTouchId = null; resetJoystick('knob-hand-l'); handL_X = 0; handL_Y = 0; }
                     else if (touch.identifier === handRTouchId) { handRTouchId = null; resetJoystick('knob-hand-r'); handR_X = 0; handR_Y = 0; }
                     else {
-                        // Si c'est un tap rapide au milieu de l'écran et qu'on est en mode construction
                         if (isBuildMode && duration < 250 && moveTouchId === null) {
                             executeBuildSpawn();
                         }
@@ -535,7 +540,6 @@
             velocityY -= 26 * delta; camera.position.y += velocityY * delta;
             if (camera.position.y < 2) { camera.position.y = 2; velocityY = 0; canJump = true; }
 
-            // Animation des mains (Mode constructeur : les mains se lèvent un peu plus)
             const handHeightOffset = isBuildMode ? -0.2 : -0.4;
             const targetLeftHand = new THREE.Vector3(baseHandL.x + handL_X * 0.5, handHeightOffset + handL_Y * 0.5, baseHandL.z + (handL_Y !== 0 ? -Math.abs(handL_Y)*0.2 : 0));
             const targetRightHand = new THREE.Vector3(baseHandR.x + handR_X * 0.5, handHeightOffset + handR_Y * 0.5, baseHandR.z + (handR_Y !== 0 ? -Math.abs(handR_Y)*0.2 : 0));
