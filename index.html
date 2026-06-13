@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Rec Room - Dorm Room P2P</title>
+    <title>Rec Room - Dorm Room Builder P2P</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; user-select: none; -webkit-user-select: none; background-color: #000; }
         #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
@@ -35,6 +35,14 @@
         
         /* Infos en haut */
         #ui-layer { position: absolute; top: 15px; left: 15px; color: white; z-index: 10; font-size: 14px; text-shadow: 1px 1px 2px black; pointer-events: none; display: none; }
+        
+        /* Interface du Maker Pen (Mode Construction) */
+        #build-ui { position: absolute; top: 15px; right: 15px; z-index: 15; display: none; text-align: right; }
+        #btn-toggle-build { background: #9c27b0; color: white; border: 2px solid white; padding: 10px 20px; border-radius: 20px; font-weight: bold; cursor: pointer; }
+        #build-menu { margin-top: 10px; background: rgba(0, 0, 0, 0.8); padding: 10px; border-radius: 10px; display: none; border: 1px solid #9c27b0; }
+        .build-item { background: #e91e63; color: white; border: none; padding: 8px 12px; margin: 4px; border-radius: 5px; font-size: 12px; font-weight: bold; cursor: pointer; display: block; width: 110px; text-align: center; }
+        .build-item.selected { background: #4caf50; box-shadow: 0 0 10px #4caf50; }
+        #build-crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 10px; height: 10px; border: 2px solid white; border-radius: 50%; z-index: 4; pointer-events: none; display: none; }
     </style>
 
     <script type="importmap">
@@ -50,7 +58,7 @@
 
     <div id="login-screen">
         <h1 style="margin-bottom: 5px;">DORM ROOM 3D</h1>
-        <p style="margin: 0 0 15px 0; font-size: 12px; opacity: 0.8;">Voice Chat Actif</p>
+        <p style="margin: 0 0 15px 0; font-size: 12px; opacity: 0.8;">Voice Chat & Mode Construction</p>
         <input type="text" id="username-input" placeholder="Ton Pseudo..." maxlength="12">
         
         <div>
@@ -65,6 +73,16 @@
         <p id="room-display" style="margin:0; font-weight: bold; color: #ff5722; pointer-events: auto; user-select: text; -webkit-user-select: text;"></p>
         <p id="player-count" style="margin: 5px 0 0 0;">Seul dans ta Dorm Room</p>
     </div>
+
+    <div id="build-ui">
+        <button id="btn-toggle-build">MAKER PEN : OFF</button>
+        <div id="build-menu">
+            <button class="build-item selected" data-type="cube">CUBE BLOC</button>
+            <button class="build-item" data-type="chair">CHAISE</button>
+            <button class="build-item" data-type="couch">CANAPÉ</button>
+        </div>
+    </div>
+    <div id="build-crosshair"></div>
 
     <div id="touch-controls">
         <div class="joystick-base" id="joy-move"><div class="joystick-knob" id="knob-move"></div></div>
@@ -94,7 +112,14 @@
 
         let otherPlayers = {};
         let peer, connections = [];
-        let myLocalAudioStream = null; // Flux micro local
+        let myLocalAudioStream = null;
+
+        // Variables Système de construction
+        let isBuildMode = false;
+        let selectedObjectType = "cube";
+        let buildableTargets = []; // Objets sur lesquels on peut poser des blocs (sol, murs)
+        const raycaster = new THREE.Raycaster();
+        const mouseCenter = new THREE.Vector2(0, 0); // Toujours le centre de l'écran
 
         document.getElementById('btn-create').addEventListener('click', () => { isHost = true; startSetup(); });
         document.getElementById('btn-join').addEventListener('click', () => { isHost = false; document.getElementById('room-input').style.display = 'block'; document.getElementById('btn-submit').style.display = 'inline-block'; });
@@ -106,18 +131,13 @@
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('touch-controls').style.display = 'block';
             document.getElementById('ui-layer').style.display = 'block';
+            document.getElementById('build-ui').style.display = 'block';
             
             initGame();
 
-            // Demande l'accès au microphone de manière asynchrone pour ne pas bloquer l'affichage 3D
             navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-                .then(stream => { 
-                    myLocalAudioStream = stream;
-                    console.log("Microphone activé avec succès.");
-                })
-                .catch(err => { 
-                    console.log("Microphone refusé ou indisponible :", err); 
-                });
+                .then(stream => { myLocalAudioStream = stream; })
+                .catch(err => { console.log("Micro indisponible :", err); });
         }
 
         function initGame() {
@@ -137,6 +157,7 @@
             const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), floorMat);
             floor.rotation.x = -Math.PI / 2;
             scene.add(floor);
+            buildableTargets.push(floor); // On peut construire sur le sol
 
             const rug = new THREE.Mesh(new THREE.BoxGeometry(6, 0.02, 6), new THREE.MeshStandardMaterial({ color: 0x4caf50, roughness: 0.9 }));
             rug.position.set(0, 0.01, 0);
@@ -146,54 +167,29 @@
             const wallBlue = new THREE.MeshStandardMaterial({ color: 0x0277bd });
             const wallWhite = new THREE.MeshStandardMaterial({ color: 0xeceff1 });
 
-            const backWall = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 0.4), wallBlue);
-            backWall.position.set(0, 2.5, -6);
-            scene.add(backWall);
+            const backWall = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 0.4), wallBlue); backWall.position.set(0, 2.5, -6); scene.add(backWall); buildableTargets.push(backWall);
+            const frontWall = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 0.4), wallWhite); frontWall.position.set(0, 2.5, 6); scene.add(frontWall); buildableTargets.push(frontWall);
+            const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 5, 12), wallOrange); leftWall.position.set(-6, 2.5, 0); scene.add(leftWall); buildableTargets.push(leftWall);
+            const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 5, 12), wallWhite); rightWall.position.set(6, 2.5, 0); scene.add(rightWall); buildableTargets.push(rightWall);
 
-            const frontWall = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 0.4), wallWhite);
-            frontWall.position.set(0, 2.5, 6);
-            scene.add(frontWall);
+            const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), wallWhite); ceiling.position.y = 5; ceiling.rotation.x = Math.PI / 2; scene.add(ceiling);
 
-            const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 5, 12), wallOrange);
-            leftWall.position.set(-6, 2.5, 0);
-            scene.add(leftWall);
-
-            const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 5, 12), wallWhite);
-            rightWall.position.set(6, 2.5, 0);
-            scene.add(rightWall);
-
-            const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), wallWhite);
-            ceiling.position.y = 5;
-            ceiling.rotation.x = Math.PI / 2;
-            scene.add(ceiling);
-
+            // Meubles de base
             const bedGroup = new THREE.Group();
-            const bedBase = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.6, 4), new THREE.MeshStandardMaterial({ color: 0x3e2723 }));
-            bedBase.position.set(0, 0.3, 0);
-            const mattress = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.4, 3.8), new THREE.MeshStandardMaterial({ color: 0xffa726 }));
-            mattress.position.set(0, 0.7, 0);
-            const pillow = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.2, 0.8), new THREE.MeshStandardMaterial({ color: 0xffffff }));
-            pillow.position.set(0, 0.9, -1.4);
-            bedGroup.add(bedBase, mattress, pillow);
-            bedGroup.position.set(-4.5, 0, -3.8);
-            scene.add(bedGroup);
+            const bedBase = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.6, 4), new THREE.MeshStandardMaterial({ color: 0x3e2723 })); bedBase.position.set(0, 0.3, 0);
+            const mattress = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.4, 3.8), new THREE.MeshStandardMaterial({ color: 0xffa726 })); mattress.position.set(0, 0.7, 0);
+            const pillow = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.2, 0.8), new THREE.MeshStandardMaterial({ color: 0xffffff })); pillow.position.set(0, 0.9, -1.4);
+            bedGroup.add(bedBase, mattress, pillow); bedGroup.position.set(-4.5, 0, -3.8); scene.add(bedGroup);
 
-            const mirrorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.2, 1.5), new THREE.MeshStandardMaterial({ color: 0xff5722 }));
-            mirrorFrame.position.set(5.75, 1.8, 0);
-            const mirrorGlass = new THREE.Mesh(new THREE.BoxGeometry(0.11, 2, 1.3), new THREE.MeshStandardMaterial({ color: 0xcfd8dc, roughness: 0, metalness: 0.9 }));
-            mirrorGlass.position.set(5.75, 1.8, 0);
+            const mirrorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.2, 1.5), new THREE.MeshStandardMaterial({ color: 0xff5722 })); mirrorFrame.position.set(5.75, 1.8, 0);
+            const mirrorGlass = new THREE.Mesh(new THREE.BoxGeometry(0.11, 2, 1.3), new THREE.MeshStandardMaterial({ color: 0xcfd8dc, roughness: 0, metalness: 0.9 })); mirrorGlass.position.set(5.75, 1.8, 0);
             scene.add(mirrorFrame, mirrorGlass);
 
-            const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.8, 0.1), new THREE.MeshStandardMaterial({ color: 0x212121 }));
-            doorFrame.position.set(0, 1.4, 5.75);
-            const doorKey = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.6, 0.12), new THREE.MeshStandardMaterial({ color: 0x00bcd4 }));
-            doorKey.position.set(0, 1.4, 5.75);
+            const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.8, 0.1), new THREE.MeshStandardMaterial({ color: 0x212121 })); doorFrame.position.set(0, 1.4, 5.75);
+            const doorKey = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.6, 0.12), new THREE.MeshStandardMaterial({ color: 0x00bcd4 })); doorKey.position.set(0, 1.4, 5.75);
             scene.add(doorFrame, doorKey);
 
-            const shelf = new THREE.Mesh(new THREE.BoxGeometry(3, 0.1, 0.8), new THREE.MeshStandardMaterial({ color: 0x5d4037 }));
-            shelf.position.set(4.4, 2.2, -5.4);
-            scene.add(shelf);
-
+            // Mes Mains Locales
             const handGeo = new THREE.SphereGeometry(0.12, 16, 16);
             const handMat = new THREE.MeshStandardMaterial({ color: 0xff5722 });
             leftHand = new THREE.Mesh(handGeo, handMat); leftHand.position.copy(baseHandL); camera.add(leftHand);
@@ -205,13 +201,109 @@
             document.getElementById('canvas-container').appendChild(renderer.domElement);
 
             setupMobileControls();
+            setupBuilderEvents();
             initNetworkP2P();
             
             window.addEventListener('resize', onWindowResize);
             animate();
         }
 
-        // --- CODE RÉSEAU AVEC AUDIO INTEGRÉ ---
+        // --- APPARITION & LOGIQUE DES OBJETS CONSTRUITS ---
+        function createPlacedObject(type, pos, colorHex) {
+            let mesh;
+            const mat = new THREE.MeshStandardMaterial({ color: colorHex || 0x9c27b0, roughness: 0.7 });
+
+            if (type === "cube") {
+                mesh = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), mat);
+                mesh.position.copy(pos);
+            } 
+            else if (type === "chair") {
+                mesh = new THREE.Group();
+                const base = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.6), mat); base.position.y = 0.3;
+                const dossier = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.1), mat); dossier.position.set(0, 0.6, -0.25);
+                const pied = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.1), mat); pied.position.set(0, 0.15, 0);
+                mesh.add(base, dossier, pied);
+                mesh.position.copy(pos);
+            } 
+            else if (type === "couch") {
+                mesh = new THREE.Group();
+                const assise = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.2, 0.8), mat); assise.position.y = 0.2;
+                const dossier = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.6, 0.2), mat); dossier.position.set(0, 0.5, -0.3);
+                mesh.add(assise, dossier);
+                mesh.position.copy(pos);
+            }
+
+            scene.add(mesh);
+            buildableTargets.push(mesh); // Permet d'empiler des objets les uns sur les autres !
+        }
+
+        // Configuration des clics de construction
+        function setupBuilderEvents() {
+            const toggleBtn = document.getElementById('btn-toggle-build');
+            const menu = document.getElementById('build-menu');
+            const crosshair = document.getElementById('build-crosshair');
+
+            toggleBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                isBuildMode = !isBuildMode;
+                if (isBuildMode) {
+                    toggleBtn.innerText = "MAKER PEN : ON";
+                    toggleBtn.style.background = "#4caf50";
+                    menu.style.display = "block";
+                    crosshair.style.display = "block";
+                } else {
+                    toggleBtn.innerText = "MAKER PEN : OFF";
+                    toggleBtn.style.background = "#9c27b0";
+                    menu.style.display = "none";
+                    crosshair.style.display = "none";
+                }
+            });
+
+            // Sélection de l'élément dans le menu
+            document.querySelectorAll('.build-item').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    document.querySelectorAll('.build-item').forEach(b => b.classList.remove('selected'));
+                    btn.classList.add('selected');
+                    selectedObjectType = btn.getAttribute('data-type');
+                });
+            });
+        }
+
+        // Exécuté lors d'un tap au centre de l'écran en mode construction
+        function executeBuildSpawn() {
+            raycaster.setFromCamera(mouseCenter, camera);
+            const intersects = raycaster.intersectObjects(buildableTargets, true);
+
+            if (intersects.length > 0) {
+                const hit = intersects[0];
+                // Calcule la position exacte en fonction de la face touchée (évite que l'objet s'enfonce)
+                const spawnPos = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.4));
+                
+                if(selectedObjectType !== "cube") {
+                    spawnPos.y = hit.point.y; // Reste au sol pour les meubles
+                }
+
+                // Génère une couleur Rec Room aléatoire pour le fun
+                const colors = [0x9c27b0, 0xe91e63, 0x00bcd4, 0xffeb3b, 0xff5722];
+                const myColor = colors[Math.floor(Math.random() * colors.length)];
+
+                // Création locale
+                createPlacedObject(selectedObjectType, spawnPos, myColor);
+
+                // Envoi de l'objet aux autres joueurs
+                const buildData = {
+                    type: "build",
+                    objectType: selectedObjectType,
+                    x: spawnPos.x, y: spawnPos.y, z: spawnPos.z,
+                    color: myColor
+                };
+                connections.forEach(conn => { if (conn.open) conn.send(buildData); });
+            }
+        }
+
+
+        // --- CODE RÉSEAU SYNCHRONISÉ ---
         function initNetworkP2P() {
             if (isHost) {
                 const generatedId = "REC-" + Math.floor(1000 + Math.random() * 9000);
@@ -219,7 +311,6 @@
                 peer.on('open', (id) => { document.getElementById('room-display').innerText = "Code de ta Chambre : " + id; });
                 peer.on('connection', (conn) => { setupConnectionEvents(conn); connections.push(conn); });
                 
-                // Le Host reçoit un appel vocal d'un invité
                 peer.on('call', (call) => {
                     if (myLocalAudioStream) call.answer(myLocalAudioStream);
                     else call.answer();
@@ -232,16 +323,9 @@
                     const conn = peer.connect(roomCode);
                     setupConnectionEvents(conn); connections.push(conn);
                     
-                    // L'invité appelle automatiquement le Host avec sa voix si le micro est prêt
-                    if (myLocalAudioStream) {
-                        peer.call(roomCode, myLocalAudioStream);
-                    } else {
-                        // Petit délai au cas où le micro s'active juste après la co
-                        setTimeout(() => { if (myLocalAudioStream) peer.call(roomCode, myLocalAudioStream); }, 2000);
-                    }
+                    if (myLocalAudioStream) { peer.call(roomCode, myLocalAudioStream); }
                 });
 
-                // L'invité reçoit un appel vocal du Host ou d'autres pairs via le Host
                 peer.on('call', (call) => {
                     if (myLocalAudioStream) call.answer(myLocalAudioStream);
                     else call.answer();
@@ -254,7 +338,7 @@
                 const wpL = new THREE.Vector3(); leftHand.getWorldPosition(wpL);
                 const wpR = new THREE.Vector3(); rightHand.getWorldPosition(wpR);
                 const myData = {
-                    id: peer.id, username: myUsername,
+                    type: "move", id: peer.id, username: myUsername,
                     x: camera.position.x, y: camera.position.y, z: camera.position.z,
                     lhX: wpL.x, lhY: wpL.y, lhZ: wpL.z, rhX: wpR.x, rhY: wpR.y, rhZ: wpR.z
                 };
@@ -262,28 +346,29 @@
             }, 40);
         }
 
-        // Réception et lecture du son des autres joueurs
         function handleVoiceStream(call) {
             call.on('stream', (remoteStream) => {
                 if (document.getElementById(`audio-${call.peer}`)) return;
                 const audioEl = document.createElement('audio');
-                audioEl.id = `audio-${call.peer}`; 
-                audioEl.srcObject = remoteStream; 
-                audioEl.autoplay = true; 
-                audioEl.style.display = 'none';
+                audioEl.id = `audio-${call.peer}`; audioEl.srcObject = remoteStream; audioEl.autoplay = true; audioEl.style.display = 'none';
                 document.body.appendChild(audioEl);
             });
         }
 
         function setupConnectionEvents(conn) {
             conn.on('data', (data) => {
-                handlePlayerData(data);
+                // Tri entre données de mouvements et de construction
+                if (data.type === "build") {
+                    createPlacedObject(data.objectType, new THREE.Vector3(data.x, data.y, data.z), data.color);
+                } else {
+                    handlePlayerData(data);
+                }
+                
                 if (isHost) {
                     connections.forEach(c => { 
                         if (c.peer !== conn.peer && c.open) {
                             c.send(data);
-                            // Le Host connecte vocalement les invités entre eux
-                            if (otherPlayers[data.id] && !otherPlayers[data.id].called && myLocalAudioStream) {
+                            if (data.id && otherPlayers[data.id] && !otherPlayers[data.id].called && myLocalAudioStream) {
                                 peer.call(data.id, myLocalAudioStream);
                                 otherPlayers[data.id].called = true;
                             }
@@ -345,20 +430,25 @@
             document.getElementById('player-count').innerText = `${count} joueur(s) dans la Chambre`;
         }
 
+        // Contrôles tactiles mobiles mis à jour pour la construction
         function setupMobileControls() {
             const jumpBtn = document.getElementById('jump-button');
             let moveTouchId = null, handLTouchId = null, handRTouchId = null;
+            let touchStartTime = 0;
 
             document.addEventListener('touchstart', (e) => {
-                if(e.target.id === 'btn-create' || e.target.id === 'btn-join' || e.target.id === 'btn-submit') return;
+                if(e.target.id === 'btn-create' || e.target.id === 'btn-join' || e.target.id === 'btn-submit' || e.target.id === 'btn-toggle-build' || e.target.classList.contains('build-item')) return;
+
+                touchStartTime = performance.now();
+                const midWidth = window.innerWidth * 0.35;
 
                 for (let i = 0; i < e.changedTouches.length; i++) {
                     let touch = e.changedTouches[i];
                     const x = touch.clientX; const y = touch.clientY;
 
-                    if (x < 150 && y > window.innerHeight - 150) moveTouchId = touch.identifier;
-                    else if (x < 150 && y < 150) handLTouchId = touch.identifier;
-                    else if (x > window.innerWidth - 150 && y < 150) handRTouchId = touch.identifier;
+                    if (x < midWidth && y > window.innerHeight - 180) moveTouchId = touch.identifier;
+                    else if (x < midWidth && y < 180) handLTouchId = touch.identifier;
+                    else if (x > window.innerWidth - midWidth && y < 180) handRTouchId = touch.identifier;
                     else if (!(x > window.innerWidth - 120 && y > window.innerHeight - 120)) {
                         onPointerDownPointerX = x; onPointerDownPointerY = y;
                         onPointerDownLon = lon; onPointerDownLat = lat;
@@ -385,11 +475,19 @@
             });
 
             document.addEventListener('touchend', (e) => {
+                const duration = performance.now() - touchStartTime;
+
                 for (let i = 0; i < e.changedTouches.length; i++) {
                     let touch = e.changedTouches[i];
                     if (touch.identifier === moveTouchId) { moveTouchId = null; resetJoystick('knob-move'); moveForward = 0; moveRight = 0; }
                     else if (touch.identifier === handLTouchId) { handLTouchId = null; resetJoystick('knob-hand-l'); handL_X = 0; handL_Y = 0; }
                     else if (touch.identifier === handRTouchId) { handRTouchId = null; resetJoystick('knob-hand-r'); handR_X = 0; handR_Y = 0; }
+                    else {
+                        // Si c'est un tap rapide au milieu de l'écran et qu'on est en mode construction
+                        if (isBuildMode && duration < 250 && moveTouchId === null) {
+                            executeBuildSpawn();
+                        }
+                    }
                 }
             });
 
@@ -414,7 +512,7 @@
         function animate() {
             requestAnimationFrame(animate);
 
-            const delta = clock.getDelta();
+            const delta = Math.min(clock.getDelta(), 0.1);
             const elapsed = clock.getElapsedTime();
 
             lat = Math.max(-85, Math.min(85, lat));
@@ -437,8 +535,10 @@
             velocityY -= 26 * delta; camera.position.y += velocityY * delta;
             if (camera.position.y < 2) { camera.position.y = 2; velocityY = 0; canJump = true; }
 
-            const targetLeftHand = new THREE.Vector3(baseHandL.x + handL_X * 0.5, baseHandL.y + handL_Y * 0.5, baseHandL.z + (handL_Y !== 0 ? -Math.abs(handL_Y)*0.2 : 0));
-            const targetRightHand = new THREE.Vector3(baseHandR.x + handR_X * 0.5, baseHandR.y + handR_Y * 0.5, baseHandR.z + (handR_Y !== 0 ? -Math.abs(handR_Y)*0.2 : 0));
+            // Animation des mains (Mode constructeur : les mains se lèvent un peu plus)
+            const handHeightOffset = isBuildMode ? -0.2 : -0.4;
+            const targetLeftHand = new THREE.Vector3(baseHandL.x + handL_X * 0.5, handHeightOffset + handL_Y * 0.5, baseHandL.z + (handL_Y !== 0 ? -Math.abs(handL_Y)*0.2 : 0));
+            const targetRightHand = new THREE.Vector3(baseHandR.x + handR_X * 0.5, handHeightOffset + handR_Y * 0.5, baseHandR.z + (handR_Y !== 0 ? -Math.abs(handR_Y)*0.2 : 0));
             
             if (moveForward !== 0 || moveRight !== 0) {
                 const wave = Math.sin(elapsed * 6) * 0.03;
