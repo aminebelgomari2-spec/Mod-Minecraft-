@@ -36,7 +36,7 @@
         /* Infos en haut */
         #ui-layer { position: absolute; top: 15px; left: 15px; color: white; z-index: 10; font-size: 14px; text-shadow: 1px 1px 2px black; pointer-events: none; display: none; }
         
-        /* Interface du Maker Pen */
+        /* Interface du Maker Pen (Mode Construction) */
         #build-ui { position: absolute; top: 15px; right: 15px; z-index: 15; display: none; text-align: right; }
         #btn-toggle-build { background: #9c27b0; color: white; border: 2px solid white; padding: 10px 20px; border-radius: 20px; font-weight: bold; cursor: pointer; }
         #build-menu { margin-top: 10px; background: rgba(0, 0, 0, 0.8); padding: 10px; border-radius: 10px; display: none; border: 1px solid #9c27b0; }
@@ -133,15 +133,15 @@
             document.getElementById('ui-layer').style.display = 'block';
             document.getElementById('build-ui').style.display = 'block';
             
-            // On demande le micro d'abord, puis on lance le jeu
+            // On récupère d'abord le micro pour être sûr que l'audio soit dispo au lancement du P2P
             navigator.mediaDevices.getUserMedia({ audio: true, video: false })
                 .then(stream => { 
                     myLocalAudioStream = stream; 
                     initGame();
                 })
                 .catch(err => { 
-                    console.log("Micro refusé ou absent, lancement sans voix :", err); 
-                    initGame();
+                    console.log("Micro indisponible ou refusé :", err); 
+                    initGame(); // On lance quand même le jeu sans audio si refusé
                 });
         }
 
@@ -162,7 +162,7 @@
             const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), floorMat);
             floor.rotation.x = -Math.PI / 2;
             scene.add(floor);
-            buildableTargets.push(floor);
+            buildableTargets.push(floor); 
 
             const rug = new THREE.Mesh(new THREE.BoxGeometry(6, 0.02, 6), new THREE.MeshStandardMaterial({ color: 0x4caf50, roughness: 0.9 }));
             rug.position.set(0, 0.01, 0);
@@ -213,6 +213,7 @@
             animate();
         }
 
+        // --- APPARITION & LOGIQUE DES OBJETS CONSTRUITS ---
         function createPlacedObject(type, pos, colorHex) {
             let mesh;
             const mat = new THREE.MeshStandardMaterial({ color: colorHex || 0x9c27b0, roughness: 0.7 });
@@ -241,6 +242,7 @@
             buildableTargets.push(mesh); 
         }
 
+        // Configuration des clics de construction
         function setupBuilderEvents() {
             const toggleBtn = document.getElementById('btn-toggle-build');
             const menu = document.getElementById('build-menu');
@@ -299,7 +301,7 @@
             }
         }
 
-        // --- ZONE AUDIO & P2P SÉCURISÉE ---
+        // --- CODE RÉSEAU ET VOICE CHAT SYNCHRONISÉ ---
         function initNetworkP2P() {
             if (isHost) {
                 const generatedId = "REC-" + Math.floor(1000 + Math.random() * 9000);
@@ -309,6 +311,13 @@
                 peer.on('connection', (conn) => { 
                     setupConnectionEvents(conn); 
                     connections.push(conn); 
+                    
+                    // Dès qu'un invité se connecte en data, l'hôte l'appelle en audio
+                    if (myLocalAudioStream) {
+                        setTimeout(() => {
+                            peer.call(conn.peer, myLocalAudioStream);
+                        }, 600); // Petit délai pour laisser le protocole Peer s'installer
+                    }
                 });
                 
                 peer.on('call', (call) => {
@@ -323,6 +332,7 @@
                     setupConnectionEvents(conn); 
                     connections.push(conn);
                     
+                    // L'invité appelle l'hôte directement
                     if (myLocalAudioStream) { 
                         peer.call(roomCode, myLocalAudioStream); 
                     }
@@ -334,6 +344,7 @@
                 });
             }
             
+            // Envoi de la position (Toutes les 40ms)
             setInterval(() => {
                 if (!peer || peer.destroyed || !peer.id) return;
                 const wpL = new THREE.Vector3(); leftHand.getWorldPosition(wpL);
@@ -363,10 +374,11 @@
             conn.on('data', (data) => {
                 if (data.type === "build") {
                     createPlacedObject(data.objectType, new THREE.Vector3(data.x, data.y, data.z), data.color);
-                } else if (data.type === "move") {
+                } else {
                     handlePlayerData(data);
                 }
                 
+                // Rediffusion de l'hôte vers les autres clients
                 if (isHost) {
                     connections.forEach(c => { 
                         if (c.peer !== conn.peer && c.open) {
@@ -375,13 +387,6 @@
                     });
                 }
             });
-
-            // Le Host appelle les invités une seule fois lors de la poignée de main initiale PeerJS
-            if (isHost && myLocalAudioStream) {
-                setTimeout(() => {
-                    peer.call(conn.peer, myLocalAudioStream);
-                }, 800);
-            }
 
             conn.on('close', () => {
                 Object.keys(otherPlayers).forEach(id => {
@@ -437,6 +442,7 @@
             document.getElementById('player-count').innerText = `${count} joueur(s) dans la Chambre`;
         }
 
+        // Contrôles tactiles mobiles
         function setupMobileControls() {
             const jumpBtn = document.getElementById('jump-button');
             let moveTouchId = null, handLTouchId = null, handRTouchId = null;
