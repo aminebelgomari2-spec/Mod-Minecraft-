@@ -31,7 +31,10 @@
         #joy-move .joystick-knob { background: #ff5722; }
         #joy-hand-l .joystick-knob { background: #00bcd4; }
         #joy-hand-r .joystick-knob { background: #4caf50; }
+        
+        /* Boutons d'action à droite */
         #jump-button { position: absolute; bottom: 30px; right: 20px; width: 70px; height: 50px; background: rgba(255, 87, 34, 0.8); border: 2px solid white; border-radius: 25px; color: white; font-weight: bold; display: flex; justify-content: center; align-items: center; font-size: 12px; }
+        #drop-button { position: absolute; bottom: 95px; right: 20px; width: 70px; height: 45px; background: rgba(120, 120, 120, 0.85); border: 2px solid white; border-radius: 20px; color: white; font-weight: bold; display: none; justify-content: center; align-items: center; font-size: 11px; z-index: 10; }
         
         /* Infos en haut */
         #ui-layer { position: absolute; top: 15px; left: 15px; color: white; z-index: 10; font-size: 14px; text-shadow: 1px 1px 2px black; pointer-events: none; display: none; }
@@ -88,6 +91,7 @@
         <div class="joystick-base" id="joy-move"><div class="joystick-knob" id="knob-move"></div></div>
         <div class="joystick-base" id="joy-hand-l"><div class="joystick-knob" id="knob-hand-l"></div></div>
         <div class="joystick-base" id="joy-hand-r"><div class="joystick-knob" id="knob-hand-r"></div></div>
+        <div id="drop-button">LÂCHER</div>
         <div id="jump-button">SAUT</div>
     </div>
 
@@ -429,6 +433,7 @@
         function triggerDeath() {
             isDead = true;
             isHoldingSword = false;
+            document.getElementById('drop-button').style.display = 'none'; // Cache le bouton drop si on meurt
             respawnTimer = 2.0; 
             
             scene.attach(swordGroup);
@@ -503,6 +508,7 @@
         // Contrôles tactiles mobiles
         function setupMobileControls() {
             const jumpBtn = document.getElementById('jump-button');
+            const dropBtn = document.getElementById('drop-button');
             let moveTouchId = null, handLTouchId = null, handRTouchId = null;
             let touchStartTime = 0;
 
@@ -519,7 +525,7 @@
                     if (x < midWidth && y > window.innerHeight - 180) moveTouchId = touch.identifier;
                     else if (x < midWidth && y < 180) handLTouchId = touch.identifier;
                     else if (x > window.innerWidth - midWidth && y < 180) handRTouchId = touch.identifier;
-                    else if (!(x > window.innerWidth - 120 && y > window.innerHeight - 120)) {
+                    else if (!(x > window.innerWidth - 120 && y > window.innerHeight - 150)) {
                         onPointerDownPointerX = x; onPointerDownPointerY = y;
                         onPointerDownLon = lon; onPointerDownLat = lat;
                     }
@@ -570,17 +576,25 @@
             }
             function resetJoystick(knobId) { document.getElementById(knobId).style.transform = 'translate(0px, 0px)'; }
 
+            // BOUTON SAUT (Saut pur, sans interférence)
             jumpBtn.addEventListener('touchstart', (e) => { 
                 e.preventDefault(); 
-                if (isHoldingSword) {
-                    isHoldingSword = false;
-                    scene.attach(swordGroup);
-                    swordGroup.position.set(camera.position.x, 0.05, camera.position.z);
-                    swordGroup.rotation.set(Math.PI/2, 0, Math.PI/4);
-                } else if (canJump && !isDead) { 
+                if (canJump && !isDead) { 
                     velocityY = 11; 
                     canJump = false; 
                 } 
+            });
+
+            // BOUTON LÂCHER (Dédié uniquement à l'épée)
+            dropBtn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                if (isHoldingSword) {
+                    isHoldingSword = false;
+                    dropBtn.style.display = 'none'; // Cache immédiatement le bouton
+                    scene.attach(swordGroup);
+                    swordGroup.position.set(camera.position.x, 0.05, camera.position.z);
+                    swordGroup.rotation.set(Math.PI/2, 0, Math.PI/4);
+                }
             });
         }
 
@@ -637,26 +651,23 @@
             }
             leftHand.position.lerp(targetLeftHand, 0.2); rightHand.position.lerp(targetRightHand, 0.2);
 
-            // --- PHYSIQUE DE L'ÉPÉE MISE À JOUR (RAMASSAGE AU SOL PLUS LARGE) ---
+            // --- DEUCTION ET AFFICHAGE DYNAMIQUE DU BOUTON DROP ---
             let swordIsTakenByOther = false;
             Object.keys(otherPlayers).forEach(id => { if (otherPlayers[id].isHoldingSword) swordIsTakenByOther = true; });
 
             if (!isHoldingSword && !swordIsTakenByOther && !isDead) {
                 const wpSword = new THREE.Vector3(); swordGroup.getWorldPosition(wpSword);
-                
-                // Détection 2D plane (X et Z) : Si ton corps passe à moins de 0.8m de l'épée au sol
                 const dist2D = Math.sqrt(Math.pow(camera.position.x - wpSword.x, 2) + Math.pow(camera.position.z - wpSword.z, 2));
                 
                 if (dist2D < 0.8) {
                     isHoldingSword = true;
+                    document.getElementById('drop-button').style.display = 'flex'; // Affiche le bouton uniquement ici
                     rightHand.add(swordGroup); 
-                    // Positionnement stylé dans la main : pointe vers l'avant de la main
                     swordGroup.position.set(0.1, -0.1, -0.4); 
                     swordGroup.rotation.set(Math.PI / 2, 0, 0);
                 }
             }
 
-            // Détection des dégâts en donnant un coup de joystick
             if (isHoldingSword && !isDead) {
                 const currentSwordPos = new THREE.Vector3();
                 swordGroup.getWorldPosition(currentSwordPos);
@@ -665,7 +676,7 @@
                 if (speed > 2.0) { 
                     Object.keys(otherPlayers).forEach(id => {
                         const targetPos = otherPlayers[id].body.position;
-                        if (currentSwordPos.distanceTo(targetPos) < 1.2) { // Zone d'attaque élargie à 1.2m
+                        if (currentSwordPos.distanceTo(targetPos) < 1.2) { 
                             const hitData = { type: "hit", targetId: otherPlayers[id].peerId };
                             connections.forEach(conn => { if (conn.open) conn.send(hitData); });
                         }
