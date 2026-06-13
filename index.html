@@ -121,6 +121,13 @@
         const raycaster = new THREE.Raycaster();
         const mouseCenter = new THREE.Vector2(0, 0);
 
+        // Variables Système d'Épée Interactif
+        let swordGroup;
+        let isHoldingSword = false;
+        let isDead = false;
+        let respawnTimer = 0;
+        let lastSwordPos = new THREE.Vector3();
+
         document.getElementById('btn-create').addEventListener('click', () => { isHost = true; startSetup(); });
         document.getElementById('btn-join').addEventListener('click', () => { isHost = false; document.getElementById('room-input').style.display = 'block'; document.getElementById('btn-submit').style.display = 'inline-block'; });
         document.getElementById('btn-submit').addEventListener('click', () => { roomCode = document.getElementById('room-input').value.trim(); if(roomCode) startSetup(); });
@@ -193,6 +200,21 @@
             const doorKey = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.6, 0.12), new THREE.MeshStandardMaterial({ color: 0x00bcd4 })); doorKey.position.set(0, 1.4, 5.75);
             scene.add(doorFrame, doorKey);
 
+            // --- INJECTION DE L'ÉPÉE REC ROOM ---
+            swordGroup = new THREE.Group();
+            const handleSword = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.2), new THREE.MeshStandardMaterial({ color: 0x5d4037 }));
+            handleSword.position.y = 0.1;
+            const guardSword = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.03, 0.05), new THREE.MeshStandardMaterial({ color: 0xffeb3b }));
+            guardSword.position.y = 0.2;
+            const bladeSword = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.7, 0.01), new THREE.MeshStandardMaterial({ color: 0xe0e0e0, metalness: 0.8, roughness: 0.2 }));
+            bladeSword.position.y = 0.55;
+            swordGroup.add(handleSword, guardSword, bladeSword);
+            
+            // Position initiale au sol au centre du tapis
+            swordGroup.position.set(0, 0.05, 0);
+            swordGroup.rotation.set(Math.PI/2, 0, Math.PI/4); 
+            scene.add(swordGroup);
+
             // Mes Mains Locales
             const handGeo = new THREE.SphereGeometry(0.12, 16, 16);
             const handMat = new THREE.MeshStandardMaterial({ color: 0xff5722 });
@@ -241,7 +263,6 @@
             buildableTargets.push(mesh); 
         }
 
-        // Configuration des clics de construction
         function setupBuilderEvents() {
             const toggleBtn = document.getElementById('btn-toggle-build');
             const menu = document.getElementById('build-menu');
@@ -342,13 +363,18 @@
             }
             
             setInterval(() => {
-                if (!peer || peer.destroyed || !peer.id) return;
+                if (!peer || peer.destroyed || !peer.id || isDead) return;
                 const wpL = new THREE.Vector3(); leftHand.getWorldPosition(wpL);
                 const wpR = new THREE.Vector3(); rightHand.getWorldPosition(wpR);
+                const wpSword = new THREE.Vector3(); swordGroup.getWorldPosition(wpSword);
+                
                 const myData = {
                     type: "move", id: peer.id, username: myUsername,
                     x: camera.position.x, y: camera.position.y, z: camera.position.z,
-                    lhX: wpL.x, lhY: wpL.y, lhZ: wpL.z, rhX: wpR.x, rhY: wpR.y, rhZ: wpR.z
+                    lhX: wpL.x, lhY: wpL.y, lhZ: wpL.z, rhX: wpR.x, rhY: wpR.y, rhZ: wpR.z,
+                    isHoldingSword: isHoldingSword,
+                    swX: wpSword.x, swY: wpSword.y, swZ: wpSword.z,
+                    swRotX: swordGroup.rotation.x, swRotY: swordGroup.rotation.y, swRotZ: swordGroup.rotation.z
                 };
                 connections.forEach(conn => { if (conn.open) conn.send(myData); });
             }, 40);
@@ -370,6 +396,11 @@
             conn.on('data', (data) => {
                 if (data.type === "build") {
                     createPlacedObject(data.objectType, new THREE.Vector3(data.x, data.y, data.z), data.color);
+                } else if (data.type === "hit") {
+                    // Si un autre joueur nous avertit qu'il nous a touché avec son épée
+                    if (data.targetId === peer.id && !isDead) {
+                        triggerDeath();
+                    }
                 } else {
                     handlePlayerData(data);
                 }
@@ -396,39 +427,47 @@
             });
         }
 
-        // --- APPARITION AVATAR STYLE REC ROOM ---
+        function triggerDeath() {
+            isDead = true;
+            isHoldingSword = false;
+            respawnTimer = 2.0; // Mort pendant 2 secondes
+            
+            // On lâche l'épée
+            scene.attach(swordGroup);
+            swordGroup.position.set(camera.position.x, 0.1, camera.position.z);
+            swordGroup.rotation.set(Math.PI/2, 0, Math.PI/4);
+
+            // Effet visuel : Recul de caméra au ciel
+            camera.position.y = 4.5;
+        }
+
         function handlePlayerData(data) {
             const id = data.id; if (!id) return;
 
             if (!otherPlayers[id]) {
                 const playerGroup = new THREE.Group();
 
-                // Matériaux type Rec Room
-                const skinMat = new THREE.MeshStandardMaterial({ color: 0xffdbac, roughness: 0.8 }); // Teint peau de base
-                const shirtMat = new THREE.MeshStandardMaterial({ color: 0x2196f3, roughness: 0.6 }); // T-shirt bleu rouge etc.
+                const skinMat = new THREE.MeshStandardMaterial({ color: 0xffdbac, roughness: 0.8 }); 
+                const shirtMat = new THREE.MeshStandardMaterial({ color: 0x2196f3, roughness: 0.6 }); 
                 const handMat = new THREE.MeshStandardMaterial({ color: 0xffdbac, roughness: 0.8 });
 
-                // 1. La Tête (Forme Capsule/Oeuf Rec Room)
                 const headGeo = new THREE.SphereGeometry(0.24, 16, 16);
-                headGeo.scale(1, 1.2, 1); // Un peu étirée vers le haut
+                headGeo.scale(1, 1.2, 1); 
                 const headMesh = new THREE.Mesh(headGeo, skinMat);
-                headMesh.position.y = 0.45; // Placé en haut
+                headMesh.position.y = 0.45; 
                 playerGroup.add(headMesh);
 
-                // 2. Le Torse Volant (Pas de jambes ni de bras)
                 const torsoGeo = new THREE.CylinderGeometry(0.2, 0.12, 0.45, 16);
                 const torsoMesh = new THREE.Mesh(torsoGeo, shirtMat);
-                torsoMesh.position.y = 0.0; // Centre de l'avatar
+                torsoMesh.position.y = 0.0; 
                 playerGroup.add(torsoMesh);
 
-                // 3. Les Mains indépendantes
                 const oLeftHand = new THREE.Mesh(new THREE.SphereGeometry(0.08, 12, 12), handMat);
                 const oRightHand = new THREE.Mesh(new THREE.SphereGeometry(0.08, 12, 12), handMat);
                 playerGroup.add(oLeftHand, oRightHand);
                 
                 scene.add(playerGroup);
 
-                // Étiquette Pseudo au-dessus de la tête
                 const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 64;
                 const ctx = canvas.getContext('2d');
                 ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, 256, 64);
@@ -440,19 +479,24 @@
                 labelSprite.scale.set(2, 0.5, 1);
                 scene.add(labelSprite);
 
-                otherPlayers[id] = { body: playerGroup, label: labelSprite, lh: oLeftHand, rh: oRightHand, peerId: id };
+                otherPlayers[id] = { body: playerGroup, label: labelSprite, lh: oLeftHand, rh: oRightHand, peerId: id, isHoldingSword: false };
                 updateCount();
             }
 
             const p = otherPlayers[id];
+            p.isHoldingSword = data.isHoldingSword;
             
-            // On balance le groupe à la position du joueur (avec légère lévitation Rec Room via sinus dans l'animation globale)
             p.body.position.set(data.x, data.y - 0.4, data.z);
-            p.label.position.set(data.x, data.y + 0.8, data.z); // Remonté un peu pour être au dessus de la grande tête
+            p.label.position.set(data.x, data.y + 0.8, data.z); 
             
-            // Placement relatif des mains distantes par rapport au corps
             if(data.lhX) p.lh.position.set(data.lhX - data.x, data.lhY - (data.y - 0.4), data.lhZ - data.z);
             if(data.rhX) p.rh.position.set(data.rhX - data.x, data.rhY - (data.y - 0.4), data.rhZ - data.z);
+
+            // Si cet autre joueur a l'épée en main, on synchronise sa position visuelle
+            if (data.isHoldingSword) {
+                swordGroup.position.set(data.swX, data.swY, data.swZ);
+                swordGroup.rotation.set(data.swRotX, data.swRotY, data.swRotZ);
+            }
         }
 
         function updateCount() {
@@ -530,7 +574,19 @@
             }
             function resetJoystick(knobId) { document.getElementById(knobId).style.transform = 'translate(0px, 0px)'; }
 
-            jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (canJump) { velocityY = 11; canJump = false; } });
+            // LE BOUTON SAUT SERT AUSSI A LACHER L'ÉPÉE SI ON LA TIENT
+            jumpBtn.addEventListener('touchstart', (e) => { 
+                e.preventDefault(); 
+                if (isHoldingSword) {
+                    isHoldingSword = false;
+                    scene.attach(swordGroup);
+                    swordGroup.position.set(camera.position.x, 0.1, camera.position.z);
+                    swordGroup.rotation.set(Math.PI/2, 0, Math.PI/4);
+                } else if (canJump && !isDead) { 
+                    velocityY = 11; 
+                    canJump = false; 
+                } 
+            });
         }
 
         function onWindowResize() {
@@ -544,6 +600,16 @@
             const delta = Math.min(clock.getDelta(), 0.1);
             const elapsed = clock.getElapsedTime();
 
+            // Gestion du Respawn (si on a été tué)
+            if (isDead) {
+                respawnTimer -= delta;
+                if (respawnTimer <= 0) {
+                    isDead = false;
+                    camera.position.set(0, 2, 2); // Respawn au centre
+                    velocityY = 0;
+                }
+            }
+
             lat = Math.max(-85, Math.min(85, lat));
             phi = THREE.MathUtils.degToRad(90 - lat); theta = THREE.MathUtils.degToRad(lon);
 
@@ -553,35 +619,73 @@
             target.z = camera.position.z + Math.sin(phi) * Math.cos(theta);
             camera.lookAt(target);
 
-            const forwardDir = new THREE.Vector3(Math.sin(theta), 0, Math.cos(theta)).normalize();
-            const rightDir = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), forwardDir).normalize();
-            camera.position.addScaledVector(forwardDir, moveForward * 4 * delta);
-            camera.position.addScaledVector(rightDir, moveRight * 4 * delta);
+            if (!isDead) {
+                const forwardDir = new THREE.Vector3(Math.sin(theta), 0, Math.cos(theta)).normalize();
+                const rightDir = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), forwardDir).normalize();
+                camera.position.addScaledVector(forwardDir, moveForward * 4 * delta);
+                camera.position.addScaledVector(rightDir, moveRight * 4 * delta);
 
-            camera.position.x = Math.max(-5.5, Math.min(5.5, camera.position.x));
-            camera.position.z = Math.max(-5.5, Math.min(5.5, camera.position.z));
+                camera.position.x = Math.max(-5.5, Math.min(5.5, camera.position.x));
+                camera.position.z = Math.max(-5.5, Math.min(5.5, camera.position.z));
 
-            velocityY -= 26 * delta; camera.position.y += velocityY * delta;
-            if (camera.position.y < 2) { camera.position.y = 2; velocityY = 0; canJump = true; }
+                velocityY -= 26 * delta; camera.position.y += velocityY * delta;
+                if (camera.position.y < 2) { camera.position.y = 2; velocityY = 0; canJump = true; }
+            }
 
             const handHeightOffset = isBuildMode ? -0.2 : -0.4;
             const targetLeftHand = new THREE.Vector3(baseHandL.x + handL_X * 0.5, handHeightOffset + handL_Y * 0.5, baseHandL.z + (handL_Y !== 0 ? -Math.abs(handL_Y)*0.2 : 0));
             const targetRightHand = new THREE.Vector3(baseHandR.x + handR_X * 0.5, handHeightOffset + handR_Y * 0.5, baseHandR.z + (handR_Y !== 0 ? -Math.abs(handR_Y)*0.2 : 0));
             
-            if (moveForward !== 0 || moveRight !== 0) {
+            if ((moveForward !== 0 || moveRight !== 0) && !isDead) {
                 const wave = Math.sin(elapsed * 6) * 0.03;
                 if(handL_X === 0 && handL_Y === 0) targetLeftHand.y += wave;
                 if(handR_X === 0 && handR_Y === 0) targetRightHand.y -= wave;
             }
             leftHand.position.lerp(targetLeftHand, 0.2); rightHand.position.lerp(targetRightHand, 0.2);
 
+            // --- PHYSIQUE & LOGIQUE DE L'ÉPÉE LOCALE ---
+            // On vérifie si quelqu'un d'autre ne tient pas déjà l'épée
+            let swordIsTakenByOther = false;
+            Object.keys(otherPlayers).forEach(id => { if (otherPlayers[id].isHoldingSword) swordIsTakenByOther = true; });
+
+            if (!isHoldingSword && !swordIsTakenByOther && !isDead) {
+                const wpR = new THREE.Vector3(); rightHand.getWorldPosition(wpR);
+                const wpSword = new THREE.Vector3(); swordGroup.getWorldPosition(wpSword);
+                
+                // Si la main droite touche l'épée au sol (distance < 0.45m), on la ramasse
+                if (wpR.distanceTo(wpSword) < 0.45) {
+                    isHoldingSword = true;
+                    rightHand.add(swordGroup); // On attache l'épée à la main droite
+                    swordGroup.position.set(0, 0, -0.2); // Alignement dans la main
+                    swordGroup.rotation.set(-Math.PI/2, 0, 0);
+                }
+            }
+
+            // Détection de frappe (si on manie l'épée et qu'on donne un coup vif)
+            if (isHoldingSword && !isDead) {
+                const currentSwordPos = new THREE.Vector3();
+                swordGroup.getWorldPosition(currentSwordPos);
+                const speed = currentSwordPos.distanceTo(lastSwordPos) / delta;
+                
+                if (speed > 2.5) { // Si le coup est assez rapide
+                    Object.keys(otherPlayers).forEach(id => {
+                        const targetPos = otherPlayers[id].body.position;
+                        // Si le bout de la lame traverse l'avatar adverse
+                        if (currentSwordPos.distanceTo(targetPos) < 0.85) {
+                            const hitData = { type: "hit", targetId: otherPlayers[id].peerId };
+                            connections.forEach(conn => { if (conn.open) conn.send(hitData); });
+                        }
+                    });
+                }
+                lastSwordPos.copy(currentSwordPos);
+            }
+
+            // Animation de lévitation des avatars distants
             Object.keys(otherPlayers).forEach(id => {
                 otherPlayers[id].label.lookAt(camera.position);
-                
-                // Petit effet de lévitation Rec Room pour les autres joueurs connectés
                 const bobbing = Math.sin(elapsed * 4 + id.charCodeAt(0)) * 0.03;
-                otherPlayers[id].body.children[0].position.y = 0.45 + bobbing; // Tête
-                otherPlayers[id].body.children[1].position.y = 0.0 + bobbing;  // Torse
+                otherPlayers[id].body.children[0].position.y = 0.45 + bobbing; 
+                otherPlayers[id].body.children[1].position.y = 0.0 + bobbing;  
             });
 
             renderer.render(scene, camera);
