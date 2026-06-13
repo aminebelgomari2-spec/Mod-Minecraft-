@@ -133,7 +133,6 @@
             document.getElementById('ui-layer').style.display = 'block';
             document.getElementById('build-ui').style.display = 'block';
             
-            // On récupère d'abord le micro pour être sûr que l'audio soit dispo au lancement du P2P
             navigator.mediaDevices.getUserMedia({ audio: true, video: false })
                 .then(stream => { 
                     myLocalAudioStream = stream; 
@@ -141,7 +140,7 @@
                 })
                 .catch(err => { 
                     console.log("Micro indisponible ou refusé :", err); 
-                    initGame(); // On lance quand même le jeu sans audio si refusé
+                    initGame(); 
                 });
         }
 
@@ -312,11 +311,10 @@
                     setupConnectionEvents(conn); 
                     connections.push(conn); 
                     
-                    // Dès qu'un invité se connecte en data, l'hôte l'appelle en audio
                     if (myLocalAudioStream) {
                         setTimeout(() => {
                             peer.call(conn.peer, myLocalAudioStream);
-                        }, 600); // Petit délai pour laisser le protocole Peer s'installer
+                        }, 600); 
                     }
                 });
                 
@@ -332,7 +330,6 @@
                     setupConnectionEvents(conn); 
                     connections.push(conn);
                     
-                    // L'invité appelle l'hôte directement
                     if (myLocalAudioStream) { 
                         peer.call(roomCode, myLocalAudioStream); 
                     }
@@ -344,7 +341,6 @@
                 });
             }
             
-            // Envoi de la position (Toutes les 40ms)
             setInterval(() => {
                 if (!peer || peer.destroyed || !peer.id) return;
                 const wpL = new THREE.Vector3(); leftHand.getWorldPosition(wpL);
@@ -378,7 +374,6 @@
                     handlePlayerData(data);
                 }
                 
-                // Rediffusion de l'hôte vers les autres clients
                 if (isHost) {
                     connections.forEach(c => { 
                         if (c.peer !== conn.peer && c.open) {
@@ -401,20 +396,39 @@
             });
         }
 
+        // --- APPARITION AVATAR STYLE REC ROOM ---
         function handlePlayerData(data) {
             const id = data.id; if (!id) return;
 
             if (!otherPlayers[id]) {
                 const playerGroup = new THREE.Group();
-                const bodyMesh = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), new THREE.MeshStandardMaterial({ color: 0x0287bd }));
-                playerGroup.add(bodyMesh);
 
-                const hMat = new THREE.MeshStandardMaterial({ color: 0xffa500 });
-                const oLeftHand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), hMat);
-                const oRightHand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), hMat);
+                // Matériaux type Rec Room
+                const skinMat = new THREE.MeshStandardMaterial({ color: 0xffdbac, roughness: 0.8 }); // Teint peau de base
+                const shirtMat = new THREE.MeshStandardMaterial({ color: 0x2196f3, roughness: 0.6 }); // T-shirt bleu rouge etc.
+                const handMat = new THREE.MeshStandardMaterial({ color: 0xffdbac, roughness: 0.8 });
+
+                // 1. La Tête (Forme Capsule/Oeuf Rec Room)
+                const headGeo = new THREE.SphereGeometry(0.24, 16, 16);
+                headGeo.scale(1, 1.2, 1); // Un peu étirée vers le haut
+                const headMesh = new THREE.Mesh(headGeo, skinMat);
+                headMesh.position.y = 0.45; // Placé en haut
+                playerGroup.add(headMesh);
+
+                // 2. Le Torse Volant (Pas de jambes ni de bras)
+                const torsoGeo = new THREE.CylinderGeometry(0.2, 0.12, 0.45, 16);
+                const torsoMesh = new THREE.Mesh(torsoGeo, shirtMat);
+                torsoMesh.position.y = 0.0; // Centre de l'avatar
+                playerGroup.add(torsoMesh);
+
+                // 3. Les Mains indépendantes
+                const oLeftHand = new THREE.Mesh(new THREE.SphereGeometry(0.08, 12, 12), handMat);
+                const oRightHand = new THREE.Mesh(new THREE.SphereGeometry(0.08, 12, 12), handMat);
                 playerGroup.add(oLeftHand, oRightHand);
+                
                 scene.add(playerGroup);
 
+                // Étiquette Pseudo au-dessus de la tête
                 const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 64;
                 const ctx = canvas.getContext('2d');
                 ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, 256, 64);
@@ -431,8 +445,12 @@
             }
 
             const p = otherPlayers[id];
+            
+            // On balance le groupe à la position du joueur (avec légère lévitation Rec Room via sinus dans l'animation globale)
             p.body.position.set(data.x, data.y - 0.4, data.z);
-            p.label.position.set(data.x, data.y + 0.6, data.z);
+            p.label.position.set(data.x, data.y + 0.8, data.z); // Remonté un peu pour être au dessus de la grande tête
+            
+            // Placement relatif des mains distantes par rapport au corps
             if(data.lhX) p.lh.position.set(data.lhX - data.x, data.lhY - (data.y - 0.4), data.lhZ - data.z);
             if(data.rhX) p.rh.position.set(data.rhX - data.x, data.rhY - (data.y - 0.4), data.rhZ - data.z);
         }
@@ -559,6 +577,11 @@
 
             Object.keys(otherPlayers).forEach(id => {
                 otherPlayers[id].label.lookAt(camera.position);
+                
+                // Petit effet de lévitation Rec Room pour les autres joueurs connectés
+                const bobbing = Math.sin(elapsed * 4 + id.charCodeAt(0)) * 0.03;
+                otherPlayers[id].body.children[0].position.y = 0.45 + bobbing; // Tête
+                otherPlayers[id].body.children[1].position.y = 0.0 + bobbing;  // Torse
             });
 
             renderer.render(scene, camera);
