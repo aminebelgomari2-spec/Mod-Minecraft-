@@ -210,7 +210,7 @@
             bladeSword.position.y = 0.55;
             swordGroup.add(handleSword, guardSword, bladeSword);
             
-            // Position initiale au sol au centre du tapis
+            // Position initiale au sol
             swordGroup.position.set(0, 0.05, 0);
             swordGroup.rotation.set(Math.PI/2, 0, Math.PI/4); 
             scene.add(swordGroup);
@@ -397,7 +397,6 @@
                 if (data.type === "build") {
                     createPlacedObject(data.objectType, new THREE.Vector3(data.x, data.y, data.z), data.color);
                 } else if (data.type === "hit") {
-                    // Si un autre joueur nous avertit qu'il nous a touché avec son épée
                     if (data.targetId === peer.id && !isDead) {
                         triggerDeath();
                     }
@@ -430,14 +429,12 @@
         function triggerDeath() {
             isDead = true;
             isHoldingSword = false;
-            respawnTimer = 2.0; // Mort pendant 2 secondes
+            respawnTimer = 2.0; 
             
-            // On lâche l'épée
             scene.attach(swordGroup);
             swordGroup.position.set(camera.position.x, 0.1, camera.position.z);
             swordGroup.rotation.set(Math.PI/2, 0, Math.PI/4);
 
-            // Effet visuel : Recul de caméra au ciel
             camera.position.y = 4.5;
         }
 
@@ -492,7 +489,6 @@
             if(data.lhX) p.lh.position.set(data.lhX - data.x, data.lhY - (data.y - 0.4), data.lhZ - data.z);
             if(data.rhX) p.rh.position.set(data.rhX - data.x, data.rhY - (data.y - 0.4), data.rhZ - data.z);
 
-            // Si cet autre joueur a l'épée en main, on synchronise sa position visuelle
             if (data.isHoldingSword) {
                 swordGroup.position.set(data.swX, data.swY, data.swZ);
                 swordGroup.rotation.set(data.swRotX, data.swRotY, data.swRotZ);
@@ -574,13 +570,12 @@
             }
             function resetJoystick(knobId) { document.getElementById(knobId).style.transform = 'translate(0px, 0px)'; }
 
-            // LE BOUTON SAUT SERT AUSSI A LACHER L'ÉPÉE SI ON LA TIENT
             jumpBtn.addEventListener('touchstart', (e) => { 
                 e.preventDefault(); 
                 if (isHoldingSword) {
                     isHoldingSword = false;
                     scene.attach(swordGroup);
-                    swordGroup.position.set(camera.position.x, 0.1, camera.position.z);
+                    swordGroup.position.set(camera.position.x, 0.05, camera.position.z);
                     swordGroup.rotation.set(Math.PI/2, 0, Math.PI/4);
                 } else if (canJump && !isDead) { 
                     velocityY = 11; 
@@ -600,12 +595,11 @@
             const delta = Math.min(clock.getDelta(), 0.1);
             const elapsed = clock.getElapsedTime();
 
-            // Gestion du Respawn (si on a été tué)
             if (isDead) {
                 respawnTimer -= delta;
                 if (respawnTimer <= 0) {
                     isDead = false;
-                    camera.position.set(0, 2, 2); // Respawn au centre
+                    camera.position.set(0, 2, 2); 
                     velocityY = 0;
                 }
             }
@@ -643,35 +637,35 @@
             }
             leftHand.position.lerp(targetLeftHand, 0.2); rightHand.position.lerp(targetRightHand, 0.2);
 
-            // --- PHYSIQUE & LOGIQUE DE L'ÉPÉE LOCALE ---
-            // On vérifie si quelqu'un d'autre ne tient pas déjà l'épée
+            // --- PHYSIQUE DE L'ÉPÉE MISE À JOUR (RAMASSAGE AU SOL PLUS LARGE) ---
             let swordIsTakenByOther = false;
             Object.keys(otherPlayers).forEach(id => { if (otherPlayers[id].isHoldingSword) swordIsTakenByOther = true; });
 
             if (!isHoldingSword && !swordIsTakenByOther && !isDead) {
-                const wpR = new THREE.Vector3(); rightHand.getWorldPosition(wpR);
                 const wpSword = new THREE.Vector3(); swordGroup.getWorldPosition(wpSword);
                 
-                // Si la main droite touche l'épée au sol (distance < 0.45m), on la ramasse
-                if (wpR.distanceTo(wpSword) < 0.45) {
+                // Détection 2D plane (X et Z) : Si ton corps passe à moins de 0.8m de l'épée au sol
+                const dist2D = Math.sqrt(Math.pow(camera.position.x - wpSword.x, 2) + Math.pow(camera.position.z - wpSword.z, 2));
+                
+                if (dist2D < 0.8) {
                     isHoldingSword = true;
-                    rightHand.add(swordGroup); // On attache l'épée à la main droite
-                    swordGroup.position.set(0, 0, -0.2); // Alignement dans la main
-                    swordGroup.rotation.set(-Math.PI/2, 0, 0);
+                    rightHand.add(swordGroup); 
+                    // Positionnement stylé dans la main : pointe vers l'avant de la main
+                    swordGroup.position.set(0.1, -0.1, -0.4); 
+                    swordGroup.rotation.set(Math.PI / 2, 0, 0);
                 }
             }
 
-            // Détection de frappe (si on manie l'épée et qu'on donne un coup vif)
+            // Détection des dégâts en donnant un coup de joystick
             if (isHoldingSword && !isDead) {
                 const currentSwordPos = new THREE.Vector3();
                 swordGroup.getWorldPosition(currentSwordPos);
                 const speed = currentSwordPos.distanceTo(lastSwordPos) / delta;
                 
-                if (speed > 2.5) { // Si le coup est assez rapide
+                if (speed > 2.0) { 
                     Object.keys(otherPlayers).forEach(id => {
                         const targetPos = otherPlayers[id].body.position;
-                        // Si le bout de la lame traverse l'avatar adverse
-                        if (currentSwordPos.distanceTo(targetPos) < 0.85) {
+                        if (currentSwordPos.distanceTo(targetPos) < 1.2) { // Zone d'attaque élargie à 1.2m
                             const hitData = { type: "hit", targetId: otherPlayers[id].peerId };
                             connections.forEach(conn => { if (conn.open) conn.send(hitData); });
                         }
@@ -680,7 +674,7 @@
                 lastSwordPos.copy(currentSwordPos);
             }
 
-            // Animation de lévitation des avatars distants
+            // Animation des autres avatars
             Object.keys(otherPlayers).forEach(id => {
                 otherPlayers[id].label.lookAt(camera.position);
                 const bobbing = Math.sin(elapsed * 4 + id.charCodeAt(0)) * 0.03;
